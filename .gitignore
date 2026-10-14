@@ -1,0 +1,26 @@
+# 秘密情報
+.env
+
+# データ(作業記録・授業名などの個人データ)と DB
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# ログ
+run_log.txt
+err.log
+out.log
+
+# ビルド・エディタ
+target/
+build/
+.gradle/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+.claude/
+
+# Excel の一時ファイル
+~$*.xlsx
