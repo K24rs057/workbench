@@ -97,6 +97,7 @@
 
 - [要件定義書 ver.0.1(下書き)](../requirements-v0.1.xlsx)
 - [要件定義書 ver.1.00](../requirements-v1.00.xlsx)
+- [要件定義書 ver.1.01](../requirements-v1.01.xlsx)(構想設計で締切の読み取りに Claude を使うと決めたため、F9・非機能 C1・C4 を直した)
 
 ## 気づき
 
