@@ -55,10 +55,25 @@ def open_window():
     webbrowser.open(URL)
 
 
+def alert(text):
+    """pythonw では画面に何も出ないので、困ったときだけ Windows の小窓で知らせる。"""
+    import ctypes
+
+    ctypes.windll.user32.MessageBoxW(None, text, "段取りさん", 0x30)
+
+
 def main():
-    if not is_running():
-        start_server()
-    open_window()
+    try:
+        if not is_running() and not start_server():
+            alert("段取りさんの本体を動かせませんでした。\nrun_log.txt に理由が残っています。")
+            return
+        open_window()
+    except Exception:
+        import traceback
+
+        with open(BASE_DIR / "run_log.txt", "a", encoding="utf-8") as f:
+            traceback.print_exc(file=f)
+        alert("段取りさんを開けませんでした。\nrun_log.txt に理由が残っています。")
 
 
 if __name__ == "__main__":
