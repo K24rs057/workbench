@@ -3,6 +3,7 @@
 本体が動いていなければ裏で動かし、Chrome の専用の窓(アドレス欄やタブのない窓)で開く。
 Chrome が見つからないときだけ、既定のブラウザで開く。
 """
+import json
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from app import HOST, PORT
+from app import HOST, PORT, code_version
 
 BASE_DIR = Path(__file__).resolve().parent
 URL = f"http://{HOST}:{PORT}/"
@@ -22,12 +23,40 @@ CHROME_PATHS = [
 ]
 
 
-def is_running():
+def health():
     try:
         with urllib.request.urlopen(URL + "api/health", timeout=1) as res:
-            return res.status == 200
-    except OSError:
-        return False
+            return json.load(res) if res.status == 200 else None
+    except (OSError, ValueError):
+        return None
+
+
+def is_running():
+    return health() is not None
+
+
+def stop_old_server():
+    """コードが新しくなっていたら、前から動いている古い本体を止める(.bat を押せば新しいコードで開く)。"""
+    h = health()
+    if not h or h.get("version") == code_version():
+        return
+    pid = h.get("pid") or pid_on_port()  # 版の情報を返さない、とても古い本体はポートから探す
+    if not pid:
+        return
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    for _ in range(20):
+        if not is_running():
+            return
+        time.sleep(0.25)
+
+
+def pid_on_port():
+    out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1] == f"{HOST}:{PORT}" and parts[3] == "LISTENING":
+            return int(parts[4])
+    return None
 
 
 def start_server():
@@ -64,6 +93,7 @@ def alert(text):
 
 def main():
     try:
+        stop_old_server()
         if not is_running() and not start_server():
             alert("段取りさんの本体を動かせませんでした。\nrun_log.txt に理由が残っています。")
             return

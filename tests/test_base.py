@@ -46,7 +46,8 @@ def test_backup_once_a_day_and_keeps_seven(db_path):
 
 def test_health_and_index(client):
     res = client.get("/api/health")
-    assert res.get_json() == {"ok": True, "name": "段取りさん"}
+    h = res.get_json()
+    assert h["ok"] is True and h["name"] == "段取りさん" and h["version"] and h["pid"]
     page = client.get("/")
     assert page.status_code == 200
     assert "段取りさん" in page.get_data(as_text=True)
