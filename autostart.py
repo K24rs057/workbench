@@ -1,16 +1,19 @@
 """自動で動き出す仕組み(構想設計「自動で動き出す仕組み」、要件 F8)。
 
-タスクスケジューラに2つ登録する。
-- 段取りさん(ログイン時):ログインしたら本体を動かす
-- 段取りさん(見回り):5分ごとに、本体が止まっていたら動かし直す
+- ログインしたとき:スタートアップのフォルダに「段取りさん.bat」を置く
+  (タスクスケジューラの「ログオン時」は管理者の権限が要り、ふだんの権限では登録できないため)
+- 止まったとき:タスクスケジューラの「段取りさん(見回り)」が5分ごとに見て、止まっていたら動かし直す
 どちらも keepalive.py を呼ぶ。keepalive.py は画面を開かない。
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-TASKS = {"段取りさん(ログイン時)": ["/SC", "ONLOGON"], "段取りさん(見回り)": ["/SC", "MINUTE", "/MO", "5"]}
+TASK = "段取りさん(見回り)"
+STARTUP = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "段取りさん.bat"
+LOGIN = "ログイン時(スタートアップ)"
 
 
 def _pythonw():
@@ -25,19 +28,21 @@ def _run(args):
 
 def install():
     command = f'"{_pythonw()}" "{BASE_DIR / "keepalive.py"}"'
-    for name, sched in TASKS.items():
-        r = _run(["/Create", "/F", "/TN", name, "/TR", command, *sched, "/RL", "LIMITED"])
-        if r.returncode != 0:
-            raise RuntimeError(f"{name} を登録できませんでした:{r.stderr.strip() or r.stdout.strip()}")
+    r = _run(["/Create", "/F", "/TN", TASK, "/TR", command, "/SC", "MINUTE", "/MO", "5", "/RL", "LIMITED"])
+    if r.returncode != 0:
+        raise RuntimeError(f"{TASK} を登録できませんでした:{r.stderr.strip() or r.stdout.strip()}")
+    # .bat は cmd が cp932 で読むので、その形で書く(フォルダの名前に日本語があるため)
+    STARTUP.write_text(f'@echo off\r\ncd /d "{BASE_DIR}"\r\nstart "" "{_pythonw()}" keepalive.py\r\n', encoding="cp932")
     return status()
 
 
 def remove():
-    for name in TASKS:
-        _run(["/Delete", "/F", "/TN", name])
+    _run(["/Delete", "/F", "/TN", TASK])
+    if STARTUP.exists():
+        STARTUP.unlink()
     return status()
 
 
 def status():
-    """{タスク名: 登録されているか}。schtasks の確認の命令で本当に確かめる。"""
-    return {name: _run(["/Query", "/TN", name]).returncode == 0 for name in TASKS}
+    """{名前: 登録されているか}。タスクは schtasks の確認の命令で本当に確かめる。"""
+    return {LOGIN: STARTUP.exists(), TASK: _run(["/Query", "/TN", TASK]).returncode == 0}
