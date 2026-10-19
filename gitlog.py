@@ -90,7 +90,15 @@ def refresh(con, now=None, reader=None, force=False):
         except Exception:  # リポジトリが見つからないなど。推測で埋めない
             failed.append(r["name"])
             continue
-        n += len(ingest(con, r["id"], got))
+        had = con.execute("SELECT 1 FROM commits WHERE container_id = ? LIMIT 1", (r["id"],)).fetchone()
+        new = ingest(con, r["id"], got)
+        n += len(new)
+        if had:  # 登録して初めて読んだ過去のコミットでは、いまのタスクを完了にしない
+            import autodone
+            for mid in new:
+                msg = con.execute("SELECT message FROM commits WHERE id = ?", (mid,)).fetchone()["message"]
+                if autodone.is_done_commit(msg):  # 「完了:」の合図(F18 ②)
+                    autodone.queue(con, f"commit:{mid}")
     if failed:
         mails.set_setting(con, "git_error", "「" + "」「".join(failed) + "」のリポジトリを読めませんでした(設定でリポジトリの場所を直せます)")
     else:

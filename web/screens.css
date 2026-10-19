@@ -209,3 +209,8 @@
 .seg button.on{background:var(--ink);color:var(--win)}
 .bar .date.snav{display:inline-flex;gap:6px;align-items:center;font-variant-numeric:tabular-nums}
 .bar .date.snav .link{font-size:15px;padding:0 4px}
+
+/* 自動で完了の欄(S3-5)と、終わっていそうの小窓(S1-4a) */
+.adone,.mrow{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.adone .an,.mrow .an{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.adone .src{overflow-wrap:anywhere}

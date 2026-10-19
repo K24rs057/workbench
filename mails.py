@@ -152,8 +152,13 @@ def ingest(con, msg, initial=False, today=None):
         (msg["source"], msg["external_id"], msg["category"], msg.get("container_id"), msg.get("baito_id"), msg["subject"],
          msg["sender"].lower(), received.isoformat(timespec="seconds"), body, json.dumps(links, ensure_ascii=False), 1 if initial else 0),
     ).lastrowid
+    import autodone
     if msg["category"] in ("Forms", "提出受付"):
-        return mid  # 自動で完了の合図(作る順番④)。タスクは作らない
+        if not initial:  # 初めて読む過去のメールでは、いまのタスクを完了にしない
+            autodone.queue(con, f"mail:{mid}")  # 自動で完了の合図(F18 ①)。タスクは作らない
+        return mid
+    if not initial and autodone.mail_signal(con, msg) == "エントリー受付":
+        autodone.queue(con, f"mail:{mid}")
     if msg["category"] == "その他" and msg["subject"].startswith("学内連絡"):
         return mid  # 一斉配信は一覧に残すだけ。参加したいものは本人が足す(要件 F9、2026-10-19 決定)
     text = msg["subject"] + "\n" + body

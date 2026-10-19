@@ -3,6 +3,7 @@ import json
 
 from flask import jsonify, request
 
+import autodone
 import containers
 import gmail
 import mails
@@ -27,11 +28,43 @@ def messages_summary():
     """連絡の3つの欄の件数。開いたら全部「見た」にする(メールの既読にはさわらない)。"""
     with con() as c:
         new = c.execute(f"SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN {HIDDEN}").fetchone()[0]
+        new += autodone.unseen(c)  # 自動で完了のお知らせも青い点に数える(Q14)
         if request.args.get("open"):
             c.execute("UPDATE messages SET seen = 1 WHERE seen = 0")
+            autodone.mark_seen(c)
         asks = c.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
+        auto = len(autodone.archive(c, limit=99))
         err = " / ".join(e for e in (mails.setting(c, "outlook_error"), mails.setting(c, "gmail_error")) if e) or None
-        return jsonify(new=new, asks=asks, error=err)
+        return jsonify(new=new, asks=asks, auto=auto, error=err)
+
+
+# ---------- 自動で完了(F18、S3-5・S1-4a、A28) ----------
+@bp.get("/auto-done")
+def auto_done_list():
+    with con() as c:
+        rows = autodone.archive(c, limit=50, before=request.args.get("before"))
+        return jsonify(items=rows[:50], more=len(rows) > 50)
+
+
+@bp.post("/auto-done/<int:tid>/undo")
+def auto_done_undo(tid):
+    with con() as c:
+        if not autodone.undo(c, tid):
+            raise UserError("このタスクは、自動で完了にしたものではありません")
+        return jsonify(ok=True)
+
+
+@bp.get("/maybe-done")
+def maybe_done_list():
+    with con() as c:
+        return jsonify(autodone.maybe_list(c))
+
+
+@bp.post("/maybe-done/<int:mid>")
+def maybe_done_answer(mid):
+    with con() as c:
+        autodone.answer_maybe(c, mid, bool(body().get("done")))
+        return jsonify(ok=True)
 
 
 @bp.get("/messages")

@@ -99,7 +99,11 @@ def build(con, today=None):
     waiting_held = len(gcal.held_waiting(con))
     if waiting_held:
         notices.append({"kind": "held", "text": f"カレンダーに書かなかった予定 {waiting_held}件", "count": waiting_held})
-    for key in ("outlook_error", "gmail_error", "calendar_error", "git_error"):
+    import autodone
+    maybe = len(autodone.maybe_list(con))
+    if maybe:  # 2段目⑧(F18 ④)。押すと [完了] [ちがう] の小窓
+        notices.append({"kind": "maybe", "text": f"終わっていそうなタスク {maybe}件", "count": maybe})
+    for key in ("outlook_error", "gmail_error", "calendar_error", "git_error", "autodone_error"):
         oe = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         if oe:
             notices.append({"kind": "error", "text": oe["value"]})

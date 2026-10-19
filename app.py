@@ -92,6 +92,7 @@ def start_worklog(db_path):
     import threading
     import time
 
+    import autodone
     import gcal
     import gitlog
     import gmail
@@ -133,6 +134,13 @@ def start_worklog(db_path):
                     gitlog.refresh(con)
             except Exception as e:
                 _log_error(db_path, "git の取り込み", e)
+            try:  # 自動で完了の合図を見分ける。「終わっていそう」は1日1回(F18)
+                with db.session(db_path) as con:
+                    autodone.run_jobs(con)
+                with db.session(db_path) as con:
+                    autodone.run_maybe(con)
+            except Exception as e:
+                _log_error(db_path, "Claude", e)
             time.sleep(60)
 
     threading.Thread(target=loop, daemon=True, name="worklog").start()

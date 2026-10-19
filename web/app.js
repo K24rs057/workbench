@@ -303,7 +303,7 @@ async function topView() {
     ${S.gOpen ? `<div class="gdetail"><div class="gsub">種類ごと</div>${g.kinds.map((k) => gline(k.name, k.progress, k.color)).join('')}${g.items.length ? `<div class="gsub">今日・今週にタスクがある授業・会社・開発</div>${g.items.map((i) => gline(i.name, i.progress)).join('')}` : ''}</div>` : ''}</div>`;
   const links = t.links.length ? `<div class="sec"><div class="sh">今日のリンク</div><div class="links">${t.links.map((l) => linkBtn(l, l.container)).join('')}</div></div>` : '';
   const dq = (t.done_questions || []).map((q) => `<div class="ask1">${esc(q.container)}で終わったタスクはある?${q.tasks.map((x) => `<button class="btn sm" data-dqdone="${q.id}" data-task="${x.id}">${esc(x.name)}</button>`).join('')}<button class="btn sm" data-dqno="${q.id}">まだ</button></div>`).join('');
-  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail" data-mcat="asks">${esc(n.text)}</button>` : n.kind === 'mail' ? `<button data-go="mail" data-mcat="mails">${esc(n.text)}</button>` : n.kind === 'held' ? `<button data-go="sched">${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
+  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail" data-mcat="asks">${esc(n.text)}</button>` : n.kind === 'mail' ? `<button data-go="mail" data-mcat="mails">${esc(n.text)}</button>` : n.kind === 'held' ? `<button data-go="sched">${esc(n.text)}</button>` : n.kind === 'maybe' ? `<button data-maybe>${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
   const over = t.overdue.length ? `<div class="sec overdue"><div class="sh">期限切れ</div>${t.overdue.map((x) => taskRow(x, lab(x))).join('')}</div>` : '';
   const sec = (title, list, empty) => `<div class="sec"><div class="sh">${title} <span class="n">${list.length}</span></div>${list.length ? list.map((x) => taskRow(x, lab(x))).join('') : `<div class="hint">${empty}</div>`}</div>`;
   const nothing = !S.c.tasks.length;
@@ -342,6 +342,8 @@ async function mailViewOld() {
     ? `<div class="qcard"><b>${esc(n.data.text)}</b><div class="s">Claude が読み取った候補日です。相手に返事をして決まったら、その日を押すと予定に入ります</div>
        <div class="rowb">${n.data.dates.map((x, i) => `<button class="btn sm" data-cand="${n.id}" data-ci="${i}">${esc(x.date.slice(5).replace('-', '/'))}(${WEEK[new Date(x.date + 'T00:00').getDay()]}) ${esc(x.start || '')}${x.end ? '〜' + esc(x.end) : ''}</button>`).join('')}
        <button class="btn sm" data-candno="${n.id}">どれも入れない</button></div></div>`
+    : n.kind === '自動で完了'
+    ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">ちがうときは、「自動で完了」の欄の [戻す] で未完了に戻せます</div><div class="rowb"><button class="btn sm" data-nok="${n.id}">わかった</button><button class="btn sm" data-undo="${n.task_id}">戻す</button></div></div>`
     : `<div class="qcard"><b>${esc(n.body)}</b></div>`;
   const cats = [['asks', '確認してほしいこと', d.notices.length], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
   const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${(S.mcat || 'mails') === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
@@ -349,6 +351,13 @@ async function mailViewOld() {
     <div class="sec"><div class="sh">確認してほしいこと <span class="n">${d.notices.length}</span></div>
     ${d.notices.length ? d.notices.map(card).join('') : '<div class="hint">今はありません。</div>'}</div>
     <div class="sec"><div class="hint">ここは、段取りさんが自分だけでは決められないことを聞く場所です。メールではなく、段取りさんからの質問とお知らせが入ります。</div></div></div></div></div>`;
+}
+async function maybeModal() {
+  const list = await api('GET', '/maybe-done');
+  if (!list.length) { closeModal(); return render(); }
+  modal(`<h3>終わっていそうなタスク</h3><div class="hint" style="margin-bottom:8px">Claude がメール・コミット・作業時間を見て、終わっていそうだと考えたものです。終わっていたら [完了] を押してください</div>
+    ${list.map((m) => `<div class="mrow"><div class="an"><b>${esc(m.name)}</b><span class="cm">${esc(m.container)} ・ ${esc(m.reason)}</span></div><button class="btn sm pri" data-mbyes="${m.id}">完了</button><button class="btn sm" data-mbno="${m.id}">ちがう</button></div>`).join('')}
+    <div class="acts"><button class="btn" data-close>閉じる</button></div>`);
 }
 function logForm(l) {
   const v = (iso) => (iso ? iso.slice(0, 16) : '');
@@ -364,14 +373,19 @@ async function mailView() {
   const sum = await api('GET', '/messages/summary?open=1');
   S.newMail = 0;
   const cat = S.mcat || 'mails';
-  const cats = [['asks', '確認してほしいこと', sum.asks], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
+  const cats = [['asks', '確認してほしいこと', sum.asks], ['mails', 'メール', ''], ['auto', '自動で完了', sum.auto || '']];
   const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${cat === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
   let mid = '', right = '';
   if (cat === 'asks') {
     const html = await mailViewOld();
     return html;
   } else if (cat === 'auto') {
-    mid = emptyState(ILL.env, 'まだありません', '提出の受付メールやコミットで自動で完了にしたタスクは、作る順番の④からここに並びます。');
+    const a = await api('GET', `/auto-done${S.autoBefore ? `?before=${encodeURIComponent(S.autoBefore)}` : ''}`);
+    const by = { 提出受付: '提出の受付メール', Forms: 'Forms の応答', エントリー受付: 'エントリー受付', コミット: 'コミット' };
+    mid = a.items.length ? `<div class="col"><div class="sec"><div class="sh">自動で完了にしたタスク</div>${a.items.map((x) => `<div class="adone"><div class="an"><b>${esc(x.name)}</b><span class="cm">${esc(x.container)} ・ ${esc((x.done_at || '').replace('T', ' ').slice(5, 16))} ・ ${esc(by[x.auto_done_by] || x.auto_done_by)}</span>${x.body ? `<span class="cm src">${esc(x.body.split('もとになったもの: ')[1] || '')}</span>` : ''}</div><button class="btn sm" data-undo="${x.id}">戻す</button></div>`).join('')}
+      ${a.more ? `<div class="rowb"><button class="btn sm" data-automore="${esc(a.items[a.items.length - 1].done_at)}">もっと見る</button></div>` : ''}</div>
+      <div class="sec"><div class="hint">提出の受付メール・Forms の応答・企業からのエントリー受付・コミットの「完了:」を見つけて、段取りさんが完了にしたタスクです。[戻す] を押すと未完了に戻り、カレンダーの「済」も消えます。</div></div></div>`
+      : emptyState(ILL.env, 'まだありません', '提出の受付メールや、コミットの「完了:」を見つけて完了にしたタスクが、ここに並びます。');
   } else {
     const d = await api('GET', '/messages');
     S.mails = d;
@@ -463,7 +477,12 @@ document.addEventListener('click', async (e) => {
     if (d.rdel) { await api('DELETE', `/window-rules/${d.rdel}`); toast('消しました。次に見たときにまた聞きます'); render(); return; }
     if (d.msw) { await Mochi.set({ [d.msw]: el.classList.contains('on') ? '0' : '1' }); render(); return; }
     if (d.mreset !== undefined) { await Mochi.resetPos(); toast('モッチを右下に戻しました'); return; }
-    if (d.mcat) { S.mcat = d.mcat; S.mail = null; render(); return; }
+    if (d.mcat) { S.mcat = d.mcat; S.mail = null; S.autoBefore = null; render(); return; }
+    if (d.automore) { S.autoBefore = d.automore; render(); return; }
+    if (d.undo) { await api('POST', `/auto-done/${d.undo}/undo`); toast('未完了に戻しました'); render(); return; }
+    if (d.nok) { await api('POST', `/notices/${d.nok}/answer`, {}); render(); return; }
+    if (d.maybe !== undefined) { await maybeModal(); return; }
+    if (d.mbyes || d.mbno) { await api('POST', `/maybe-done/${d.mbyes || d.mbno}`, { done: !!d.mbyes }); toast(d.mbyes ? '完了にしました' : 'このタスクは、しばらく聞きません'); await maybeModal(); return; }
     if (d.mother !== undefined) { S.otherOpen = !S.otherOpen; render(); return; }
     if (d.mail) { S.mail = +d.mail; render(); return; }
     if (d.mresort) {

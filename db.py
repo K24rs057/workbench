@@ -197,6 +197,13 @@ CREATE TABLE IF NOT EXISTS commits (
     hidden INTEGER NOT NULL DEFAULT 0,
     UNIQUE(container_id, hash)
 );
+CREATE TABLE IF NOT EXISTS maybe_done (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    resolved INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS agent_messages (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,

@@ -151,6 +151,8 @@ def notices_answer(nid):
             mails.answer_baito(c, n, b.get("baito_id"), b.get("name"))
         elif n["kind"] == "候補日":
             mails.answer_candidate(c, n, b.get("index"), bool(b.get("none")))
+        elif n["kind"] == "自動で完了":  # お知らせなので [わかった] で消すだけ。タスクは「自動で完了」の欄に残る
+            c.execute("UPDATE notices SET answered = 1 WHERE id = ?", (nid,))
         else:
             try:
                 worklog.answer_window(c, nid, b.get("container_id"), bool(b.get("ignore")), b.get("pattern"))
