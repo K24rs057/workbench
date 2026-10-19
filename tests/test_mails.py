@@ -62,12 +62,14 @@ def test_deadline_becomes_task_with_container_or_unsorted(db_path):
     setup(db_path)
     with db.session(db_path) as con:
         run(con, [mail("教員連絡:情報演習 第3回レポート", "第3回レポートは10月23日 23:59までに提出"),
-                  mail("学内連絡:【本日締切17:00】説明会の申込", "申込は本日締切です", days_ago=0)],
+                  mail("【本日締切17:00】説明会の申込", "申込は本日締切です", days_ago=0),
+                  mail("学内連絡:【本日締切17:00】留学説明会の申込", "申込は本日締切です", days_ago=0)],
             initial_last=NOW - timedelta(hours=1))
         ts = {t["name"]: (t["due_date"], t["due_time"], t["container_id"], t["from_message_id"]) for t in con.execute("SELECT * FROM tasks")}
         uid = con.execute("SELECT id FROM containers WHERE is_unsorted = 1").fetchone()["id"]
     assert ts["情報演習 第3回レポート"][:2] == ("2026-10-23", "23:59")
     assert ts["説明会の申込"][2] == uid  # その他 → 未分類
+    assert "留学説明会の申込" not in ts  # 学内連絡の一斉配信からはタスクを作らない
 
 
 def test_first_read_skips_past_deadlines_and_marks_seen(db_path):
@@ -163,7 +165,7 @@ def test_mail_screen_api(client, db_path):
     with db.session(db_path) as con:
         mails.set_setting(con, "university_domain", UNI)
         timetable.refresh(con, force=True)
-        run(con, [mail("学内連絡:説明会", "10月30日までに申込"), mail("教員連絡:デザイン 連絡", "本文です")], initial_last=NOW - timedelta(hours=1))
+        run(con, [mail("説明会のご案内", "10月30日までに申込"), mail("教員連絡:デザイン 連絡", "本文です")], initial_last=NOW - timedelta(hours=1))
     s = client.get("/api/messages/summary").get_json()
     assert s["new"] == 2
     client.get("/api/messages/summary?open=1")
@@ -172,7 +174,7 @@ def test_mail_screen_api(client, db_path):
     assert len(lst["main"]) == 1 and len(lst["other"]) == 1
     other = lst["other"][0]
     detail = client.get(f"/api/messages/{other['id']}").get_json()
-    assert detail["tasks"][0]["name"] == "説明会"
+    assert detail["tasks"][0]["name"] == "説明会のご案内"
     cid = client.post("/api/containers", json={"name": "キャリア", "kind_id": 2}).get_json()["id"]
     client.patch(f"/api/messages/{other['id']}", json={"container_id": cid})
     assert client.get(f"/api/messages/{other['id']}").get_json()["container"] == "キャリア"

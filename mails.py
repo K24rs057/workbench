@@ -147,6 +147,8 @@ def ingest(con, msg, initial=False, today=None):
     ).lastrowid
     if msg["category"] in ("Forms", "提出受付"):
         return mid  # 自動で完了の合図(作る順番④)。タスクは作らない
+    if msg["category"] == "その他" and msg["subject"].startswith("学内連絡"):
+        return mid  # 一斉配信は一覧に残すだけ。参加したいものは本人が足す(要件 F9、2026-10-19 決定)
     text = msg["subject"] + "\n" + body
     found = find_deadlines(text, received)
     if found:
