@@ -44,6 +44,10 @@ def build(con, today=None):
     classes_today = timetable.classes_on(con, today)
     classes_tomorrow = timetable.classes_on(con, tomorrow)
 
+    def held(day):
+        return [{"name": h["title"], "start": (h["start_at"][11:16] or "終日"), "held": True}
+                for h in con.execute("SELECT * FROM held_events WHERE substr(start_at, 1, 10) = ? ORDER BY start_at", (day.isoformat(),))]
+
     # 今日のリンク:今日の授業の順 → 「いつもトップに出す」(基本設計 S1-12)
     link_rows, seen = [], set()
     def add_links(cid, extra=None):
@@ -81,6 +85,12 @@ def build(con, today=None):
     waiting = con.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
     if waiting:
         notices.append({"kind": "ask", "text": f"確認してほしいこと {waiting}件", "count": waiting})
+    new_mail = con.execute("SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN ('Forms', '提出受付')").fetchone()[0]
+    if new_mail:
+        notices.append({"kind": "mail", "text": f"新しい連絡 {new_mail}件", "count": new_mail})
+    oe = con.execute("SELECT value FROM settings WHERE key = 'outlook_error'").fetchone()
+    if oe:
+        notices.append({"kind": "error", "text": oe["value"]})
     if ov["unsorted"]:
         notices.append({"kind": "unsorted", "text": f"未分類 {ov['unsorted']}件", "count": ov["unsorted"]})
 
@@ -94,6 +104,8 @@ def build(con, today=None):
         "done_questions": worklog.open_done_questions(con, today),
         "overdue": overdue, "today_tasks": today_, "week": week, "nodue": nodue,
         "classes_today": classes_today, "classes_tomorrow": classes_tomorrow,
+        "held_today": held(today), "held_tomorrow": held(tomorrow),
+        "new_mail": new_mail,
     }
 
 

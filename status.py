@@ -2,7 +2,8 @@
 from datetime import datetime, timedelta
 
 # 遅れの目安(Claude の案。基本設計 エラー「裏の仕事が止まっている」)。①で動く仕事だけ
-LIMITS = {"作業記録": timedelta(minutes=5), "通知": timedelta(minutes=5), "時間割の読み込み": timedelta(minutes=30)}
+LIMITS = {"作業記録": timedelta(minutes=5), "通知": timedelta(minutes=5), "時間割の読み込み": timedelta(minutes=30),
+          "Outlook": timedelta(minutes=30)}
 
 
 def jobs(con, now=None):

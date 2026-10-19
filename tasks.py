@@ -103,7 +103,11 @@ def set_done(con, tid, done, now=None):
 
 
 def delete(con, tid):
-    get(con, tid)
+    t = get(con, tid)
+    if t["from_message_id"]:  # メールから自動で入ったものは、次に読んでも戻さない(F9)
+        m = con.execute("SELECT external_id FROM messages WHERE id = ?", (t["from_message_id"],)).fetchone()
+        if m:
+            con.execute("INSERT INTO deleted_items(external_id, what) VALUES (?, 'タスク')", (m["external_id"],))
     con.execute("UPDATE tasks SET repeat_from_task_id = NULL WHERE repeat_from_task_id = ?", (tid,))
     con.execute("DELETE FROM tasks WHERE id = ?", (tid,))
 
@@ -130,6 +134,7 @@ def to_json(con, t):
         "due_date": t["due_date"], "due_time": t["due_time"], "repeat_weekday": t["repeat_weekday"],
         "done": bool(t["done"]), "open_url": t["open_url"], "open_target": target, "open_label": label,
         "ai": bool(t["ai_read"] and not t["ai_checked"]), "created_at": t["created_at"],
+        "from_mail": bool(t["from_message_id"]),
     }
 
 

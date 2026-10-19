@@ -38,6 +38,7 @@ def create_app(db_path=None):
     db.init(db_path)
     import api_worklog  # noqa: F401  作業記録の API を bp に足す
     import api_agent  # noqa: F401  モッチの API を bp に足す
+    import api_mail  # noqa: F401  連絡の API を bp に足す
     app.register_blueprint(api.bp)
 
     @app.get("/")
@@ -60,11 +61,13 @@ def create_app(db_path=None):
 
 
 def start_worklog(db_path):
-    """1分ごとに、作業記録をつけ(F4)、通知を確かめる(F8)。"""
+    """1分ごとに、作業記録をつけ(F4)、通知を確かめ(F8)、10分ごとに大学のメールを読む(F9)。"""
     import threading
     import time
 
+    import mails
     import notify
+    import outlook
     import worklog
 
     def loop():
@@ -75,16 +78,25 @@ def start_worklog(db_path):
                 with db.session(db_path) as con:
                     notify.check(con)
             except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
-                try:
-                    with db.session(db_path) as con:
-                        con.execute(
-                            "INSERT INTO job_status(job, last_error) VALUES ('作業記録', ?) "
-                            "ON CONFLICT(job) DO UPDATE SET last_error = excluded.last_error", (str(e),))
-                except Exception:
-                    pass
+                _log_error(db_path, "作業記録", e)
+            try:  # メールは10分ごと(outlook.refresh の中で間を数える)
+                with db.session(db_path) as con:
+                    outlook.refresh(con)
+                with db.session(db_path) as con:
+                    mails.run_claude_jobs(con)
+            except Exception as e:
+                _log_error(db_path, "Outlook", e)
             time.sleep(60)
 
     threading.Thread(target=loop, daemon=True, name="worklog").start()
+
+
+def _log_error(db_path, job, e):
+    try:
+        with db.session(db_path) as con:
+            con.execute("INSERT INTO job_status(job, last_error) VALUES (?, ?) ON CONFLICT(job) DO UPDATE SET last_error = excluded.last_error", (job, str(e)[:200]))
+    except Exception:
+        pass
 
 
 def already_running(port):

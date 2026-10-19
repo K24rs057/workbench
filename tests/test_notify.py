@@ -89,5 +89,5 @@ def test_status_late_jobs(db_path):
 
 def test_status_api(client):
     res = client.get("/api/status").get_json()
-    assert {j["job"] for j in res["jobs"]} == {"作業記録", "通知", "時間割の読み込み"}
+    assert {j["job"] for j in res["jobs"]} == {"作業記録", "通知", "時間割の読み込み", "Outlook"}
     assert set(res["autostart"]) == {"ログイン時(スタートアップ)", "段取りさん(見回り)"}

@@ -124,6 +124,59 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    container_id INTEGER,
+    baito_id INTEGER,
+    subject TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    body TEXT,
+    links TEXT,
+    seen INTEGER NOT NULL DEFAULT 0,
+    ai_failed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sort_rules (
+    id INTEGER PRIMARY KEY,
+    sender TEXT NOT NULL,
+    subject TEXT,
+    container_id INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS blocked_senders (
+    id INTEGER PRIMARY KEY,
+    address TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS deleted_items (
+    id INTEGER PRIMARY KEY,
+    external_id TEXT NOT NULL,
+    what TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS baito_places (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    domain TEXT
+);
+CREATE TABLE IF NOT EXISTS baito_addresses (
+    id INTEGER PRIMARY KEY,
+    baito_id INTEGER NOT NULL,
+    address TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS held_events (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT,
+    reason TEXT NOT NULL,
+    container_id INTEGER,
+    task_id INTEGER,
+    from_message_id INTEGER,
+    ai_read INTEGER NOT NULL DEFAULT 0,
+    ai_excerpt TEXT
+);
 CREATE TABLE IF NOT EXISTS agent_messages (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,

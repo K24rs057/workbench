@@ -89,12 +89,17 @@ async function refreshRec() {
   document.querySelectorAll('.recmini').forEach((el) => { el.outerHTML = recLine(); });
 }
 setInterval(refreshRec, 30000);
+async function refreshNewMail() {
+  try { const s = await api('GET', '/messages/summary'); if (S.newMail !== s.new && S.screen !== 'mail') { S.newMail = s.new; side(); } } catch (e) { /* 本体が止まっているとき */ }
+}
+setInterval(refreshNewMail, 60000);
 
 function side() {
   const on = (k) => S.screen === k || (k === 'cont' && S.screen === 'inside');
-  const nav = SCREENS.map(([k, n, i]) => `<button class="nav ${on(k) ? 'on' : ''}" data-go="${k}">${i}${esc(n)}</button>`).join('');
+  const dot = (k) => (k === 'mail' && S.newMail ? '<span class="dot" title="新しい連絡"></span>' : '');
+  const nav = SCREENS.map(([k, n, i]) => `<button class="nav ${on(k) ? 'on' : ''}" data-go="${k}">${i}${esc(n)}${dot(k)}</button>`).join('');
   $('#side').innerHTML = `<div class="brand">${IC.brand}段取りさん</div>${nav}${recLine()}`;
-  $('#tabbar').innerHTML = recLine() + SCREENS.map(([k, n, i, short]) => `<button class="${on(k) ? 'on' : ''}" data-go="${k}">${i}${esc(short || n)}</button>`).join('');
+  $('#tabbar').innerHTML = recLine() + SCREENS.map(([k, n, i, short]) => `<button class="${on(k) ? 'on' : ''}" data-go="${k}">${i}${esc(short || n)}${dot(k)}</button>`).join('');
 }
 
 function taskRow(t, label) {
@@ -102,13 +107,15 @@ function taskRow(t, label) {
   const name = !t.open_target ? esc(t.name)
     : web ? `<a class="tlink" href="${esc(t.open_target)}" target="_blank" rel="noopener" title="${esc(t.open_label)}を開く">${esc(t.name)}</a><span class="to">${esc(t.open_label)}</span>`
     : `<button class="tlink" data-topen="${t.id}" title="${esc(t.open_label)}を開く">${esc(t.name)}</button><span class="to">${esc(t.open_label)}</span>`;
+  const ai = t.ai ? `<button class="mk mk-ai" data-aibadge="${t.id}" title="Claude が読み取った。押すと、読み取った部分が見られます">AI</button>` : '';
+  const fm = t.from_mail && !t.ai ? '<span class="mk mk-mail" title="メールから自動で入った">メール</span>' : '';
   const warn = t.warn ? `<span class="mk mk-warn">${esc(t.warn)}</span>` : '';
   const pick = t.unsorted ? '<button class="mk mk-pick" data-sort>どれのタスクか選んで</button>' : '';
   const rep = t.repeat_weekday !== null && t.repeat_weekday !== undefined ? `<span class="mk mk-rep">毎週${WEEK[(t.repeat_weekday + 1) % 7]}</span>` : '';
   const late = t.due_date && !t.done && t.due_date < isoToday();
   return `<div class="task ${label ? 'withLab' : ''} ${t.done ? 'done' : ''}">
     <button class="ck" data-done="${t.id}" aria-label="${t.done ? '完了を外す' : '完了にする'}"></button>${label || ''}
-    <span class="nm">${name}${rep}${warn}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
+    <span class="nm">${name}${ai}${fm}${rep}${warn}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
     <span class="due ${late ? 'late' : ''}">${late ? '遅れ ' : ''}${esc(dueLabel(t))}</span></div>`;
 }
 
@@ -196,6 +203,13 @@ async function statusSection() {
   const auto = Object.entries(st.autostart).map(([n, ok]) => `<div class="kv"><span>${esc(n)}</span><span class="${ok ? '' : 'late'}">${ok ? '登録されています' : '登録されていません'}</span></div>`).join('');
   return `<div class="sset"><h3>本体の様子</h3>${jobs}<div class="sh" style="margin-top:10px">タスクスケジューラ(PC を起動したら自動で動き出す)</div>${auto}</div>`;
 }
+async function mailSection() {
+  const [ms, bl] = await Promise.all([api('GET', '/settings/mail'), api('GET', '/blocked-senders')]);
+  return `<div class="sset"><h3>メールと連絡</h3>
+    <div class="kv"><span>大学のアドレスの形</span><span><input class="nmin" style="width:220px;border-color:var(--line2)" id="udom" value="${esc(ms.university_domain)}" placeholder="example.ac.jp"> <button class="btn sm" data-domsave>保存</button></span></div>
+    <div class="hint" style="margin:2px 0 8px">@ から後ろ。この形(と、その下のアドレス)から届いたメールだけを、大学の連絡として読みます。PC の中にだけ保存します</div>
+    <div class="kv"><span>止めた差出人</span><span>${bl.length ? bl.map((b) => `<div>${esc(b.address)} <button class="link" data-bdel="${b.id}">外す</button></div>`).join('') : 'なし'}</span></div></div>`;
+}
 function mochiSection() {
   const st = window.Mochi ? Mochi.settings() : {};
   const sw = (key, label, aria) => `<span class="tg"><button class="sw ${st[key] === '0' ? '' : 'on'}" data-msw="${key}" aria-label="${aria}"></button>${label}</span>`;
@@ -217,6 +231,7 @@ async function setView() {
     <div class="sset"><h3>種類</h3>${rows}<div class="rowb"><button class="btn" data-kadd>+ 種類を足す</button><span class="hint">灰色は未分類だけの色なので選べません。中に授業・会社・開発がある種類は消せません</span></div></div>
     ${await rulesSection()}
     ${await statusSection()}
+    ${await mailSection()}
     ${mochiSection()}</div>`;
 }
 
@@ -232,6 +247,9 @@ function timeRows(list) {
   return list.length ? list.map((c) => `<div class="tl"><span>${esc(c.start)}</span><span>${kindLabel(c.name, KIND_UNI)} 授業</span></div>`).join('') : '<div class="hint">なし</div>';
 }
 let KIND_UNI = '#17806a';
+function heldRows(list) {
+  return (list || []).map((h) => `<div class="tl"><span>${esc(h.start)}</span><span>${esc(h.name)} <span class="mk mk-rep" title="Google カレンダーにつながったら書きます">預かり中</span></span></div>`).join('');
+}
 async function topView() {
   const t = await api('GET', '/top');
   S.top = t;
@@ -245,7 +263,7 @@ async function topView() {
     ${S.gOpen ? `<div class="gdetail"><div class="gsub">種類ごと</div>${g.kinds.map((k) => gline(k.name, k.progress, k.color)).join('')}${g.items.length ? `<div class="gsub">今日・今週にタスクがある授業・会社・開発</div>${g.items.map((i) => gline(i.name, i.progress)).join('')}` : ''}</div>` : ''}</div>`;
   const links = t.links.length ? `<div class="sec"><div class="sh">今日のリンク</div><div class="links">${t.links.map((l) => linkBtn(l, l.container)).join('')}</div></div>` : '';
   const dq = (t.done_questions || []).map((q) => `<div class="ask1">${esc(q.container)}で終わったタスクはある?${q.tasks.map((x) => `<button class="btn sm" data-dqdone="${q.id}" data-task="${x.id}">${esc(x.name)}</button>`).join('')}<button class="btn sm" data-dqno="${q.id}">まだ</button></div>`).join('');
-  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail">${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
+  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail" data-mcat="asks">${esc(n.text)}</button>` : n.kind === 'mail' ? `<button data-go="mail" data-mcat="mails">${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
   const over = t.overdue.length ? `<div class="sec overdue"><div class="sh">期限切れ</div>${t.overdue.map((x) => taskRow(x, lab(x))).join('')}</div>` : '';
   const sec = (title, list, empty) => `<div class="sec"><div class="sh">${title} <span class="n">${list.length}</span></div>${list.length ? list.map((x) => taskRow(x, lab(x))).join('') : `<div class="hint">${empty}</div>`}</div>`;
   const nothing = !S.c.tasks.length;
@@ -253,7 +271,7 @@ async function topView() {
     `<div class="tbody"><div class="col">${gauge}${links}${notices}${over}
       <div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-addtop>+ タスクを足す</button><span class="hint">1行で打って足す欄(1行入力)は、あとで作ります</span></div></div>
       ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '「+ タスクを足す」か、「授業・会社・開発」の画面から足せます。') : sec('今日', t.today_tasks, '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
-      <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${timeRows(t.classes_today)}</div><div class="sec"><div class="sh">明日の時間</div>${timeRows(t.classes_tomorrow)}</div>
+      <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${timeRows(t.classes_today)}${heldRows(t.held_today)}</div><div class="sec"><div class="sh">明日の時間</div>${timeRows(t.classes_tomorrow)}${heldRows(t.held_tomorrow)}</div>
       <div class="hint" style="padding:10px 0">予定(Google カレンダー)は、作る順番の③でここに混ざります。</div></aside></div>`;
 }
 async function addTaskFromTop() {
@@ -267,7 +285,7 @@ async function addTaskFromTop() {
 }
 
 
-async function mailView() {
+async function mailViewOld() {
   const d = await api('GET', '/notices');
   S.notices = d;
   const opts = d.options.map((o) => `<option value="${o.id}">${esc(o.kind)}:${esc(o.name)}</option>`).join('');
@@ -277,10 +295,12 @@ async function mailView() {
        <div class="hint">窓の名前にこの文字が入っていたら、同じ答えにします。短くすると、広く当てはまります(例:「情報科学演習」)</div>
        <div class="rowb"><select id="sel${n.id}"><option value="">どれの作業?</option>${opts}</select><button class="btn sm pri" data-ans="${n.id}">これにする</button><button class="btn sm" data-ansno="${n.id}">記録しない</button></div></div>`
     : `<div class="qcard"><b>${esc(n.body)}</b></div>`;
-  return bar('連絡') + `<div class="cbody2"><div class="col">
+  const cats = [['asks', '確認してほしいこと', d.notices.length], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
+  const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${(S.mcat || 'mails') === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
+  return bar('連絡') + `<div class="cbody">${left}<div class="list" style="grid-column:2/-1"><div class="col">
     <div class="sec"><div class="sh">確認してほしいこと <span class="n">${d.notices.length}</span></div>
     ${d.notices.length ? d.notices.map(card).join('') : '<div class="hint">今はありません。</div>'}</div>
-    <div class="sec"><div class="hint">ここは、段取りさんが自分だけでは決められないことを聞く場所です。メールではなく、段取りさんからの質問とお知らせが入ります。メールの一覧と「自動で完了」は、メールの取り込み(作る順番の②)でここに増えます。</div></div></div></div>`;
+    <div class="sec"><div class="hint">ここは、段取りさんが自分だけでは決められないことを聞く場所です。メールではなく、段取りさんからの質問とお知らせが入ります。</div></div></div></div></div>`;
 }
 function logForm(l) {
   const v = (iso) => (iso ? iso.slice(0, 16) : '');
@@ -289,6 +309,44 @@ function logForm(l) {
     <div class="field"><span>終わり</span><input id="lge" type="datetime-local" value="${v(l && l.ended_at)}"></div>
     <div class="field"><span>内容(なくてもよい)</span><input id="lgn" value="${esc(l ? l.note || '' : '')}" placeholder="第2章を書いた"></div>
     <div class="acts">${l ? `<button class="btn danger l" data-logdel="${l.id}">消す</button>` : ''}<button class="btn" data-close>やめる</button><button class="btn pri" data-logsave="${l ? l.id : ''}">${l ? '保存' : '足す'}</button></div>`);
+}
+
+const CATN = { 授業: '授業', 奨学金: '奨学金', 試合のチケット: '試合のチケット', 企業: '企業', アルバイト: 'アルバイト', その他: 'その他' };
+async function mailView() {
+  const sum = await api('GET', '/messages/summary?open=1');
+  S.newMail = 0;
+  const cat = S.mcat || 'mails';
+  const cats = [['asks', '確認してほしいこと', sum.asks], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
+  const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${cat === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
+  let mid = '', right = '';
+  if (cat === 'asks') {
+    const html = await mailViewOld();
+    return html;
+  } else if (cat === 'auto') {
+    mid = emptyState(ILL.env, 'まだありません', '提出の受付メールやコミットで自動で完了にしたタスクは、作る順番の④からここに並びます。');
+  } else {
+    const d = await api('GET', '/messages');
+    S.mails = d;
+    const row = (m) => `<button class="mail ${S.mail === m.id ? 'on' : ''}" data-mail="${m.id}"><div class="f"><span class="mk mk-pick" style="margin:0">${esc(m.container || CATN[m.category] || m.category)}</span><span class="from">${esc(m.sender.split('@')[0])}</span><span>${esc(m.received_at.slice(5, 10).replace('-', '/'))}</span></div><div class="s">${esc(m.subject)}${m.ai_failed ? ' <span class="mk mk-warn">読み取れなかった</span>' : ''}</div></button>`;
+    mid = (d.main.length ? d.main.map(row).join('') : '<div class="hint" style="padding:12px 14px">授業・奨学金などのメールは、まだありません。</div>') +
+      `<button class="mail" data-mother style="color:var(--sub)"><div class="f"><span>その他の大学のお知らせ ${d.other.length}件 ${S.otherOpen ? '▾' : '▸'}</span></div><div class="s">授業・奨学金・試合のチケットに当てはまらない大学からのメール(学内連絡の一斉配信など)</div></button>` +
+      (S.otherOpen ? d.other.map(row).join('') : '');
+    if (S.mail) {
+      try {
+        const m = await api('GET', `/messages/${S.mail}`);
+        S.mailDetail = m;
+        const body = m.body_gone ? '<p class="hint">本文は90日で消えています。Outlook または Gmail で開いてください。</p>' : `<div class="mbody">${esc(m.body).slice(0, 20000)}</div>`;
+        const links = m.links.length ? `<div class="sh" style="margin-top:12px">本文の中のリンク</div><div class="links">${m.links.slice(0, 8).map((u) => `<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, '').slice(0, 40))}</a>`).join('')}</div>` : '';
+        const made = m.tasks.length || m.held.length ? `<div class="sh" style="margin-top:12px">このメールから入ったもの</div>${m.tasks.map((t) => `<div class="tl"><span>タスク</span><span>${esc(t.name)} ${esc(t.due_date || '')} ${esc(t.due_time || '')} <button class="link danger" data-mtdel="${t.id}">消す</button></span></div>`).join('')}${m.held.map((h) => `<div class="tl"><span>予定</span><span>${esc(h.title)} ${esc(h.start_at)}</span></div>`).join('')}` : '';
+        right = `<div class="reader"><h2>${esc(m.subject)}</h2><div class="meta">${esc(CATN[m.category] || m.category)} ・ ${esc(m.sender)} ・ ${esc(m.received_at.replace('T', ' ').slice(0, 16))}${m.container ? ' ・ ' + esc(m.container) : ''}</div>${body}${links}${made}
+          <div class="acts mact"><div><button class="btn sm" data-mresort="${m.id}">振り分けを直す</button><span>このメールは「${esc(m.container || 'その他')}」に振り分けられています。ちがうときに直します。次から、この差出人のメールは直したほうに入ります</span></div>
+          <div><button class="btn sm" data-mblock="${esc(m.sender)}">この差出人は取り込まない</button><span>宣伝など、いらない差出人のときに押します。次から、この差出人のメールは段取りさんに入りません。メールそのものは消えず、設定の「止めた差出人」から戻せます</span></div></div></div>`;
+      } catch (e) { S.mail = null; }
+    }
+    if (!right) right = `<div class="reader"><div class="empty" style="padding-top:60px">${ILL.env}<span>メールを選んでください</span></div></div>`;
+  }
+  return bar('連絡', sum.error ? `<span class="date late">${esc(sum.error)}</span>` : '<span class="date">10分ごとに読みます</span>') +
+    `<div class="cbody">${left}<div class="list">${mid}</div>${right}</div>`;
 }
 
 // ---------- 小窓の中身 ----------
@@ -338,7 +396,7 @@ document.addEventListener('click', async (e) => {
   const d = el.dataset;
   try {
     if (d.close !== undefined && (e.target === el || el.tagName === 'BUTTON')) { closeModal(); return; }
-    if (d.go) { go(d.go); return; }
+    if (d.go) { if (d.mcat) S.mcat = d.mcat; go(d.go); return; }
     if (d.ans) { await api('POST', `/notices/${d.ans}/answer`, { container_id: +$('#sel' + d.ans).value || null, pattern: $('#pat' + d.ans).value }); toast('答えを覚えました'); render(); return; }
     if (d.ansno) { await api('POST', `/notices/${d.ansno}/answer`, { ignore: true, pattern: $('#pat' + d.ansno).value }); toast('この窓は記録しません'); render(); return; }
     if (d.dqdone) { await api('POST', `/done-questions/${d.dqdone}`, { task_id: +d.task }); toast('完了にしました'); render(); return; }
@@ -357,6 +415,35 @@ document.addEventListener('click', async (e) => {
     if (d.rdel) { await api('DELETE', `/window-rules/${d.rdel}`); toast('消しました。次に見たときにまた聞きます'); render(); return; }
     if (d.msw) { await Mochi.set({ [d.msw]: el.classList.contains('on') ? '0' : '1' }); render(); return; }
     if (d.mreset !== undefined) { await Mochi.resetPos(); toast('モッチを右下に戻しました'); return; }
+    if (d.mcat) { S.mcat = d.mcat; S.mail = null; render(); return; }
+    if (d.mother !== undefined) { S.otherOpen = !S.otherOpen; render(); return; }
+    if (d.mail) { S.mail = +d.mail; render(); return; }
+    if (d.mresort) {
+      const ov = await api('GET', '/containers');
+      const opts = ov.kinds.flatMap((k) => k.items.map((i) => `<option value="${i.id}">${esc(k.name)}:${esc(i.name)}</option>`)).join('');
+      modal(`<h3>振り分けを直す</h3><div class="hint">このメールと、同じ差出人からこれから届くメールを、選んだところに振り分けます。このメールから入ったタスクも移します。</div>
+        <div class="field"><span>振り分け先</span><select id="mrs"><option value="">どれでもない(その他)</option>${opts}</select></div>
+        <div class="acts"><button class="btn" data-close>やめる</button><button class="btn pri" data-mresortok="${d.mresort}">直す</button></div>`);
+      return;
+    }
+    if (d.mresortok) { await api('PATCH', `/messages/${d.mresortok}`, { container_id: +$('#mrs').value || null }); closeModal(); toast('振り分けを直しました。次からこの差出人は、直したほうに入ります'); render(); return; }
+    if (d.mblock) {
+      modal(`<h3>この差出人を取り込まないようにしますか?</h3><div style="font-size:12.5px;line-height:1.7">${esc(d.mblock)}<br>次から、この差出人のメールは段取りさんに入らなくなります。<br>メールそのものは消えません。設定の「止めた差出人」から、いつでも戻せます。</div>
+        <div class="acts"><button class="btn" data-close>やめる</button><button class="btn pri" data-mblockok="${esc(d.mblock)}">取り込まない</button></div>`);
+      return;
+    }
+    if (d.mblockok) { await api('POST', '/blocked-senders', { address: d.mblockok }); closeModal(); toast('この差出人を止めました(設定から戻せます)'); return; }
+    if (d.mtdel) { await api('DELETE', `/tasks/${d.mtdel}`); toast('消しました。次に読んでも戻しません'); render(); return; }
+    if (d.aibadge) {
+      const a = await api('GET', `/tasks/${d.aibadge}/ai`);
+      modal(`<h3>Claude が読み取りました</h3><div class="hint">もとのメール:${esc(a.subject || '(なし)')}</div><p class="quote">${esc(a.excerpt || '')}</p>
+        <div class="hint">まちがっていたら、タスクを直してください。直すか「確認した」を押すと、札が消えます。</div>
+        <div class="acts"><button class="btn" data-close>閉じる</button><button class="btn pri" data-aiok="${d.aibadge}">確認した</button></div>`);
+      return;
+    }
+    if (d.aiok) { await api('POST', `/tasks/${d.aiok}/ai-checked`); closeModal(); render(); return; }
+    if (d.bdel) { await api('DELETE', `/blocked-senders/${d.bdel}`); toast('外しました'); render(); return; }
+    if (d.domsave !== undefined) { await api('PATCH', '/settings/mail', { university_domain: $('#udom').value }); toast('保存しました。次の読み込みから使います'); render(); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
     if (d.addtop !== undefined) { await addTaskFromTop(); return; }
     if (d.lopen) { await api('POST', `/links/${d.lopen}/open`); toast('開きました'); return; }
@@ -460,6 +547,7 @@ window.addEventListener('hashchange', () => {
 });
 
 refreshRec();
+refreshNewMail();
 (function start() {
   const h = location.hash.slice(1);
   if (h.startsWith('inside-')) { S.cont = +h.slice(7); S.screen = 'inside'; }
