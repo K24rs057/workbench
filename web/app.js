@@ -234,7 +234,9 @@ async function mailSection() {
     <div class="kv"><span>止めた差出人</span><span>${bl.length ? bl.map((b) => `<div>${esc(b.address)} <button class="link" data-bdel="${b.id}">外す</button></div>`).join('') : 'なし'}</span></div>
     <div class="hint" style="margin:2px 0 8px">リクナビ・マイナビ・理系ナビ・学情からの「受付中」「おすすめ」などの宣伝は、初めから取り込みません</div>
     <div class="kv"><span>バイト先</span><span>${baito || 'まだありません'}<div class="rowb"><button class="btn sm" data-btadd>+ バイト先を足す</button></div></span></div>
-    <div class="hint" style="margin:2px 0 8px">Indeed・タウンワークなどの中継アドレスは、初めて届いたときに「どのバイト先?」と聞いて覚えます。お店から直接届くときは、@ から後ろを入れておきます</div></div>
+    <div class="hint" style="margin:2px 0 8px">Indeed・タウンワークなどの中継アドレスは、初めて届いたときに「どのバイト先?」と聞いて覚えます。お店から直接届くときは、@ から後ろを入れておきます</div>
+    <div class="kv"><span>シフト表での自分の名前</span><span><input class="nmin" style="width:160px;border-color:var(--line2)" id="shname" value="${esc(ms.shift_name)}" placeholder="山田(名字だけ、など)"> <button class="btn sm" data-shsave>保存</button></span></div>
+    <div class="hint" style="margin:2px 0 8px">シフト表の写真を「予定」の画面に落とすと、この名前の行だけを読みます。PC の中にだけ保存します</div></div>
     <div class="sset"><h3>Google</h3>
     <div class="kv"><span>Gmail</span><span>${esc(g.state)} ${g.state === '合鍵なし' ? '' : `<a class="btn sm" href="/auth/google">${g.state === '許可済み' ? '許可し直す' : 'Google と連携する'}</a>`}</span></div>
     <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div>
@@ -526,6 +528,7 @@ document.addEventListener('click', async (e) => {
     if (d.cand !== undefined && d.ci !== undefined) { await api('POST', `/notices/${d.cand}/answer`, { index: +d.ci }); toast('予定に入れました'); render(); return; }
     if (d.candno) { await api('POST', `/notices/${d.candno}/answer`, { none: true }); toast('入れずに閉じました'); render(); return; }
     if (d.hdel) { await api('DELETE', `/held-events/${d.hdel}`); toast('消しました。次に読んでも戻しません'); render(); return; }
+    if (d.shsave !== undefined) { await api('PATCH', '/settings/mail', { shift_name: $('#shname').value }); toast('保存しました'); render(); return; }
     if (d.domsave !== undefined) { await api('PATCH', '/settings/mail', { university_domain: $('#udom').value }); toast('保存しました。次の読み込みから使います'); render(); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
     if (d.addtop !== undefined) { await addTaskFromTop(); return; }

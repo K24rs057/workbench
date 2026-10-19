@@ -155,17 +155,23 @@ def task_ai(tid):
 @bp.get("/settings/mail")
 def mail_settings():
     with con() as c:
-        return jsonify(university_domain=mails.setting(c, "university_domain") or "",
+        import shift
+        return jsonify(university_domain=mails.setting(c, "university_domain") or "", shift_name=shift.name(c),
                        google={"state": gmail.state(), "calendar": gmail.calendar_allowed()}, gmail_error=mails.setting(c, "gmail_error"))
 
 
 @bp.patch("/settings/mail")
 def mail_settings_set():
-    d = (body().get("university_domain") or "").strip().lower().lstrip("@")
-    if d and "." not in d:
-        raise UserError("「example.ac.jp」のように、@ から後ろを入れてください")
+    b = body()
     with con() as c:
-        mails.set_setting(c, "university_domain", d)
+        if "shift_name" in b:  # シフト表での自分の名前(F14)。PC の中にだけ置く
+            import shift
+            shift.set_name(c, b["shift_name"])
+        if "university_domain" in b:
+            d = (b.get("university_domain") or "").strip().lower().lstrip("@")
+            if d and "." not in d:
+                raise UserError("「example.ac.jp」のように、@ から後ろを入れてください")
+            mails.set_setting(c, "university_domain", d)
         return jsonify(ok=True)
 
 

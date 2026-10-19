@@ -70,7 +70,9 @@
       }).join('');
       main = `<div class="month">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>`;
     }
-    return top + `<div class="col" style="padding-top:4px">${warn}${held}${main}
+    const drop = `<div class="shdrop" id="shdrop"><b>シフト表の写真をここに落とす</b><span>Claude が自分のシフトだけを読み取ります。読み取った結果を見てから書き込めます</span>
+      <label class="btn sm">写真を選ぶ<input type="file" accept="image/*" id="shfile" hidden></label></div>`;
+    return top + `<div class="col" style="padding-top:4px">${warn}${held}${main}${d.connected ? drop : ''}
       <div class="hint" style="padding:12px 0">スマホなどで足した予定も、10分ごとに読んで出します。段取りさんが書いた締切は、ここではタスクとして1回だけ出します。</div></div>`;
   }
 
@@ -113,6 +115,78 @@
       <span class="rowb" style="margin:0">${h.reason === '重なる予定がある' ? `<button class="btn sm" data-hforce="${h.id}">それでも書く</button><button class="btn sm" data-hdrop="${h.id}">書かない</button>` : `<button class="btn sm" data-hretry="${h.id}">もう一度書く</button>`}</span></div>`).join('') || '<div class="none">ありません</div>'}
       <div class="acts"><button class="btn" data-close>閉じる</button></div>`);
   }
+
+  // ---------- シフト表の写真(F14、S2-2・S2-2a) ----------
+  async function sendPhoto(file) {
+    if (!file) return;
+    modal(`<h3>シフト表を読み取っています</h3><p class="hint">Claude が写真を読んでいます。1分ほどかかることがあります。</p>`);
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const r = await fetch('/api/shift-photo', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || '読み取れませんでした');
+      S.shifts = j.shifts; S.shbaito = j.baito;
+      shiftModal();
+    } catch (err) {
+      modal(`<h3>読み取れませんでした</h3><p>${esc(err.message)}</p><div class="acts"><button class="btn" data-close>閉じる</button><button class="btn" data-shhand>自分で入れる</button><label class="btn pri">もう一度<input type="file" accept="image/*" id="shfile2" hidden></label></div>`);
+    }
+  }
+  function shiftModal() {
+    const list = S.shifts || [];
+    const pick = S.shbaito && S.shbaito.length > 1
+      ? `<div class="field"><span>どのバイト先のシフト?</span><select id="shb"><option value="">選ぶ…</option>${S.shbaito.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>` : '';
+    const name = !S.shbaito || !S.shbaito.length ? 'バイト' : S.shbaito.length === 1 ? `バイト(${S.shbaito[0].name})` : 'バイト(選んだバイト先)';
+    modal(`<h3>読み取ったシフト</h3>
+      <div class="hint" style="margin-bottom:8px">まちがっていたら、その場で直せます。書き込まない日は × で外します。予定の名前は「${esc(name)}」です</div>${pick}
+      ${list.length ? list.map((x, i) => `<div class="shrow"><input type="date" value="${esc(x.date)}" data-shd="${i}" aria-label="日付"><input value="${esc(x.start)}" data-shs="${i}" aria-label="始まり" placeholder="17:00"><span>〜</span><input value="${esc(x.end)}" data-she="${i}" aria-label="終わり" placeholder="22:00"><button class="link danger" data-shx="${i}" aria-label="この日を外す">×</button></div>`).join('')
+        : '<div class="none">書き込むシフトはありません</div>'}
+      <div class="rowb"><button class="btn sm" data-shaddrow>+ 1日足す</button></div>
+      <div class="acts"><button class="btn" data-shclose>閉じる</button><button class="btn pri" data-shcommit ${list.length ? '' : 'disabled'}>書き込む</button></div>`);
+  }
+  function readRows() {
+    (S.shifts || []).forEach((x, i) => {
+      const g = (a) => { const el = document.querySelector(`[data-${a}="${i}"]`); return el ? el.value.trim() : ''; };
+      x.date = g('shd'); x.start = g('shs'); x.end = g('she');
+    });
+  }
+  document.addEventListener('change', (e) => {
+    if (S.screen !== 'sched') return;
+    if (e.target.id === 'shfile' || e.target.id === 'shfile2') { sendPhoto(e.target.files[0]); e.target.value = ''; }
+  });
+  document.addEventListener('dragover', (e) => {
+    const z = e.target.closest && e.target.closest('#shdrop');
+    if (z && S.screen === 'sched') { e.preventDefault(); z.classList.add('on'); }
+  });
+  document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.target.closest('#shdrop'); if (z) z.classList.remove('on'); });
+  document.addEventListener('drop', (e) => {
+    const z = e.target.closest && e.target.closest('#shdrop');
+    if (!z || S.screen !== 'sched') return;
+    e.preventDefault(); z.classList.remove('on');
+    sendPhoto(e.dataTransfer.files[0]);
+  });
+
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('button');
+    if (!el || S.screen !== 'sched') return;
+    const dd = el.dataset;
+    try {
+      if (dd.shx) { readRows(); S.shifts.splice(+dd.shx, 1); shiftModal(); return; }
+      if (dd.shaddrow !== undefined) { readRows(); S.shifts.push({ date: isoToday(), start: '', end: '' }); shiftModal(); return; }
+      if (dd.shhand !== undefined) { S.shifts = [{ date: isoToday(), start: '', end: '' }]; S.shbaito = S.shbaito || (await api('GET', '/baito')); shiftModal(); return; }
+      if (dd.shclose !== undefined) { S.shifts = null; closeModal(); return; }  // 閉じたら結果は消す
+      if (dd.shcommit !== undefined) {
+        readRows();
+        const b = $('#shb');
+        const r = await api('POST', '/shift-photo/commit', { shifts: S.shifts, baito_id: b ? +b.value || null : null });
+        S.shifts = null;
+        modal(`<h3>書き込みました</h3><p>「${esc(r.summary)}」を ${r.written.length}日、Google カレンダーに書きました。</p>
+          ${r.skipped.length ? `<div class="sh">書かなかった日</div>${r.skipped.map((x) => `<div class="ev" style="grid-template-columns:auto minmax(0,1fr)"><span class="tm">${md(x.date)} ${esc(x.start)}〜${esc(x.end)}</span><span class="hint">${esc(x.reason)}</span></div>`).join('')}` : ''}
+          <div class="acts"><button class="btn pri" data-close>閉じる</button></div>`);
+        render(); return;
+      }
+    } catch (err) { if ($('#merr')) modalError(err); else toast(err.message); return; }
+  });
 
   document.addEventListener('click', async (e) => {
     const el = e.target.closest('button');
@@ -168,4 +242,5 @@
   });
 
   VIEWS.sched = schedView;
+  if (S.screen === 'sched') render();  // 「予定」で開いたとき、app.js が先に仮の画面を描いているので描き直す
 })();

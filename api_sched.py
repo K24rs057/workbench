@@ -196,6 +196,47 @@ def events_delete(gid):
     return jsonify(ok=True)
 
 
+# ---------- シフト表の写真(F14、A20・A21) ----------
+@bp.post("/shift-photo")
+def shift_photo():
+    """落とした写真を Claude に読ませて、自分のシフトを返す。写真は残さない。"""
+    import shift
+    f = request.files.get("photo")
+    if not f:
+        raise UserError("写真を落としてください")
+    with con() as c:
+        try:
+            got = shift.read_photo(c, f.read(), f.filename)
+        except shift.ShiftError as e:
+            raise UserError(str(e))
+        places = [dict(p) for p in c.execute("SELECT id, name FROM baito_places ORDER BY id")]
+    return jsonify(shifts=got, baito=places)
+
+
+@bp.post("/shift-photo/commit")
+def shift_commit():
+    """[書き込む]。× で外した日は画面から送らない。"""
+    import shift
+    b = body()
+    shifts = b.get("shifts") or []
+    if not shifts:
+        raise UserError("書き込むシフトはありません")
+    with con() as c:
+        try:
+            summary = shift.title(c, int(b["baito_id"]) if b.get("baito_id") else None)
+        except shift.ShiftError as e:
+            raise UserError(str(e))
+    days = sorted(s.get("date") or "" for s in shifts)
+    api = _cal()
+    try:
+        date.fromisoformat(days[0]), date.fromisoformat(days[-1])
+    except ValueError:
+        raise UserError("日付の形がちがいます")
+    items = _events(days[0], days[-1])
+    res = _google(shift.commit, None, api, items, shifts, summary)
+    return jsonify(**res, summary=summary)
+
+
 # ---------- Google に書けなかった予定(A19) ----------
 @bp.post("/held-events/<int:hid>/<action>")
 def held_action(hid, action):

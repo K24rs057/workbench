@@ -214,3 +214,11 @@
 .adone,.mrow{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .adone .an,.mrow .an{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:13px}
 .adone .src{overflow-wrap:anywhere}
+
+/* シフト表の写真(S2-2・S2-2a) */
+.shdrop{margin:14px 0 4px;border:1.5px dashed var(--line2);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;font-size:12.5px;color:var(--sub)}
+.shdrop b{color:var(--ink);font-size:13px}
+.shdrop.on{border-color:var(--blue);background:color-mix(in srgb, var(--blue) 8%, transparent)}
+.shdrop label{margin-top:6px;cursor:pointer}
+.shrow{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto minmax(0,1fr) auto;gap:6px;align-items:center;margin:4px 0}
+.shrow input{min-width:0}
