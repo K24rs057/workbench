@@ -4,6 +4,7 @@
 - 締切の前日(明日が締切の未完了のタスク)
 - 手つかず:締切のあるタスクは、締切の3日前になっても、その入れ物に作業記録がない
             締切のないタスクは、登録から3日たっても、その入れ物に作業記録がない(「手つかずの通知」がオフの種類は出さない)
+- 着手日を過ぎた:着手日の翌日になっても、着手日から後にその入れ物に作業記録がない(F16・Q28)
 本体が止まっていて出せなかった前日の通知は、次に画面を開いたときにまとめて見せる。
 出したかどうかは settings に "notified:種類:タスク" で残す。
 """
@@ -44,7 +45,7 @@ def _touched_since(con, cid, since):
 
 
 def marks(con, today=None):
-    """画面のタスクの行につける印(Q5):{task_id: '明日まで' | '手つかず'}。"""
+    """画面のタスクの行につける印(Q5):{task_id: '明日まで' | '着手日を過ぎた' | '手つかず'}。"""
     today = today or date.today()
     out = {}
     rows = con.execute(
@@ -54,6 +55,8 @@ def marks(con, today=None):
     for t in rows:
         if t["due_date"] == (today + timedelta(days=1)).isoformat():
             out[t["id"]] = "明日まで"
+        elif _start_missed(con, t, today):
+            out[t["id"]] = "着手日を過ぎた"
         elif _untouched(con, t, today):
             out[t["id"]] = "手つかず"
     return out
@@ -71,6 +74,15 @@ def _untouched(con, t, today):
         if date.fromisoformat(created) + timedelta(days=UNTOUCHED_DAYS) > today:
             return False
     return not _touched_since(con, t["container_id"], created)
+
+
+def _start_missed(con, t, today):
+    """着手日の翌日までに、その入れ物に自動の作業記録が1つもない(F16・Q28。入れ物の単位で見る)。"""
+    if not t["start_date"]:
+        return False
+    if date.fromisoformat(t["start_date"]) + timedelta(days=1) > today:
+        return False
+    return not _touched_since(con, t["container_id"], t["start_date"])
 
 
 def check(con, now=None):
@@ -94,6 +106,10 @@ def check(con, now=None):
                 # 前日の通知を出すはずだったのに、本体が止まっていた
                 con.execute("INSERT INTO pending_pc_notices(text, due_at) VALUES (?, ?)", (f"明日まで(前日の通知):{label}", (due - timedelta(days=1)).isoformat()))
                 _mark(con, key, now)
+        key = f"start:{t['id']}:{t['start_date']}"
+        if t["start_date"] and not _sent(con, key) and _start_missed(con, t, today):
+            msg = ("着手日を過ぎた", f"{label} は着手日を過ぎましたが、まだ手をつけていません")
+            show(*msg); sent.append(msg); _mark(con, key, now)
         key = f"untouched:{t['id']}"
         if not _sent(con, key) and _untouched(con, t, today):
             msg = ("手つかず", f"{label} にまだ手をつけていません")

@@ -4,6 +4,7 @@ from flask import Blueprint, current_app, jsonify, request
 import containers
 import db
 import gitlog
+import quick
 import tasks
 from containers import UserError
 
@@ -26,7 +27,7 @@ def user_error(e):
 @bp.after_request
 def calendar_follow(res):
     """タスク・入れ物・連絡が変わったら、次の1分の見回りでカレンダーも直す(F13)。"""
-    if request.method != "GET" and res.status_code < 400 and request.path.startswith(("/api/tasks", "/api/containers", "/api/messages", "/api/agent", "/api/unsorted")):
+    if request.method != "GET" and res.status_code < 400 and request.path.startswith(("/api/tasks", "/api/containers", "/api/messages", "/api/agent", "/api/unsorted", "/api/quick-input")):
         import gcal
         with con() as c:
             gcal.mark_dirty(c)
@@ -84,6 +85,7 @@ def containers_get(cid):
             **containers.summary(c, row),
             kind=dict(kind) if kind else None,
             tasks=tasks.list_for(c, cid),
+            quick_ai=quick.ai_on(c),
             dev=gitlog.dev_info(row),
             dev_states=list(gitlog.DEV_STATES),
             deletable=not any(
@@ -126,6 +128,24 @@ def tasks_delete(tid):
     with con() as c:
         tasks.delete(c, tid)
         return jsonify(ok=True)
+
+
+@bp.post("/quick-input")
+def quick_input():
+    """1行入力からタスクを作る(A2・F17)。ai はトグルの状態で、送るたびに覚える。"""
+    b = body()
+    with con() as c:
+        use_ai = bool(b.get("ai"))
+        quick.set_ai(c, use_ai)
+        return jsonify(quick.add(c, b.get("text"), use_ai=use_ai, container_id=b.get("container_id"))), 201
+
+
+@bp.patch("/quick-input")
+def quick_toggle():
+    """1行入力の「AI で読み取る」トグルだけを覚える(F17・Q10)。"""
+    with con() as c:
+        quick.set_ai(c, bool(body().get("ai")))
+        return jsonify(ai=quick.ai_on(c))
 
 
 @bp.get("/unsorted")

@@ -113,10 +113,42 @@ function taskRow(t, label) {
   const pick = t.unsorted ? '<button class="mk mk-pick" data-sort>どれのタスクか選んで</button>' : '';
   const rep = t.repeat_weekday !== null && t.repeat_weekday !== undefined ? `<span class="mk mk-rep">毎週${WEEK[(t.repeat_weekday + 1) % 7]}</span>` : '';
   const late = t.due_date && !t.done && t.due_date < isoToday();
+  const start = t.startMark ? '<span class="mk mk-start">今日から始める</span>'
+    : t.start_date && !t.done && t.start_date > isoToday() ? `<span class="mk mk-rep" title="この日に「今日」へ上がります">着手 ${esc(t.start_date.slice(5).replace('-', '/'))}</span>` : '';
   return `<div class="task ${label ? 'withLab' : ''} ${t.done ? 'done' : ''}">
     <button class="ck" data-done="${t.id}" aria-label="${t.done ? '完了を外す' : '完了にする'}"></button>${label || ''}
-    <span class="nm">${name}${ai}${fm}${rep}${warn}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
+    <span class="nm">${name}${ai}${fm}${rep}${start}${warn}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
     <span class="due ${late ? 'late' : ''}">${late ? '遅れ ' : ''}${esc(dueLabel(t))}</span></div>`;
+}
+
+// 1行入力(F17)。cid があればその入れ物に決まっている(S5-3a)
+function quickBox(head, cid, ai) {
+  return `<div class="sec quick"><div class="sh">${esc(head)}</div>
+    <div class="qrow"><input id="qin" data-qcid="${cid || ''}" placeholder="${cid ? '金 23:59 第10回課題' : '金 レポート 卒論'}" autocomplete="off" aria-label="${esc(head)}">
+    <span class="tg"><button class="sw ${ai ? 'on' : ''}" data-qai aria-label="AI で読み取る"></button>AI で読み取る</span>
+    <button class="btn" data-qadd>足す</button><button class="btn" ${cid ? 'data-addt' : 'data-addtop'}>くわしく</button></div>
+    <div class="hint">${cid ? '「金 23:59 第10回課題」のように打って Enter。締切は「金」「10/25」「明日」「来週金」「3日後」、時刻は「23:59」「17時」と書けます' : '「金 レポート 卒論」のように打って Enter。締切(「金」「10/25」「明日」「来週金」「3日後」「23:59」「17時」)と、授業・会社・開発の名前の一部を読みます。読めなかった所は未分類・締切なしで入ります'}${ai ? '。AI がオンのときは、どんな書き方でも Claude が読みます(数秒かかります)' : ''}</div></div>`;
+}
+
+async function quickSubmit() {
+  const inp = $('#qin');
+  if (!inp || !inp.value.trim() || inp.disabled) return;
+  const ai = !!$('[data-qai]')?.classList.contains('on');
+  const cid = inp.dataset.qcid;
+  inp.disabled = true;
+  if (ai) toast('Claude が読み取っています…');
+  try {
+    const r = await api('POST', '/quick-input', { text: inp.value, ai, ...(cid ? { container_id: +cid } : {}) });
+    const t = r.task;
+    const when = t.due_date ? `締切 ${dueLabel(t)}` : '締切なし';
+    const how = r.how === 'fallback' ? '(AI で読めなかったので、決まった書き方で読みました)' : r.how === 'limit' ? '(Claude の使用量の上限のため、決まった書き方で読みました)' : '';
+    toast(`「${t.name}」を${r.unsorted ? '未分類' : `「${r.container}」`}に足しました・${when}${how}`, () => api('DELETE', `/tasks/${t.id}`).then(render));
+    S.qfocus = true;
+    render();
+  } catch (err) {
+    inp.disabled = false;
+    toast(err.message);
+  }
 }
 
 // ---------- 画面 ----------
@@ -158,7 +190,7 @@ async function insideView() {
   const tabs = [['task', 'タスク'], ['log', '記録'], ['link', 'リンク'], ['cset', '設定']];
   let body = '';
   if (S.ctab === 'task') {
-    body = `<div class="sec"><div class="rowb"><button class="btn pri" data-addt>+ 「${esc(c.name)}」にタスクを足す</button><span class="hint">締切・時刻・毎週の繰り返し・押したときに開くページを入れられます</span></div></div>
+    body = `${quickBox(`「${c.name}」にタスクを足す`, c.id, c.quick_ai)}
       <div class="sec">${c.tasks.length ? c.tasks.map((t) => taskRow(t)).join('') : emptyState(ILL.desk, 'タスクはまだありません', '「タスクを足す」から入れてください。')}</div>`;
   } else if (S.ctab === 'log') {
     const [logs, commits] = await Promise.all([api('GET', `/containers/${S.cont}/logs`), c.repo_path ? api('GET', `/containers/${S.cont}/commits`) : []]);
@@ -295,7 +327,8 @@ function dayRows(classes, events, held) {
 async function topView() {
   const t = await api('GET', '/top');
   S.top = t;
-  S.c = { tasks: [...t.overdue, ...t.today_tasks, ...t.week, ...t.nodue] };
+  t.started.forEach((x) => { x.startMark = true; });
+  S.c = { tasks: [...t.overdue, ...t.today_tasks, ...t.started, ...t.week, ...t.nodue] };
   KIND_UNI = (S.kinds || []).find((k) => k.builtin && k.name)?.color || KIND_UNI;
   const lab = (x) => kindLabel(x.label.name, x.label.color);
   const g = t.gauge;
@@ -311,8 +344,8 @@ async function topView() {
   const nothing = !S.c.tasks.length;
   return bar('トップ', `<span class="date">${today()}</span>`) +
     `<div class="tbody"><div class="col">${gauge}${links}${notices}${over}
-      <div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-addtop>+ タスクを足す</button><span class="hint">1行で打って足す欄(1行入力)は、あとで作ります</span></div></div>
-      ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '「+ タスクを足す」か、「授業・会社・開発」の画面から足せます。') : sec('今日', t.today_tasks, '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
+      ${quickBox('タスクをすばやく足す', null, t.quick_ai)}
+      ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '上の欄に1行で打つか、「授業・会社・開発」の画面から足せます。') : sec('今日', [...t.today_tasks, ...t.started], '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
       <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${dayRows(t.classes_today, t.events_today, t.held_today)}</div><div class="sec"><div class="sh">明日の時間</div>${dayRows(t.classes_tomorrow, t.events_tomorrow, t.held_tomorrow)}</div>
       ${t.calendar_on ? '' : '<div class="hint" style="padding:10px 0">Google カレンダーは、設定の「Google」で許可するとここに混ざります。</div>'}</aside></div>`;
 }
@@ -420,9 +453,10 @@ function taskForm(t, containerId) {
   modal(`<h3>${t ? 'タスクを直す' : 'タスクを足す'}</h3>
     <div class="field"><span>名前</span><input id="tname" value="${esc(t ? t.name : '')}" placeholder="第11回課題"></div>
     <div class="field"><span>締切</span><div class="two"><input id="tdate" type="date" value="${esc(t ? t.due_date || '' : '')}"><input id="ttime" placeholder="23:59(なくてもよい)" value="${esc(t ? t.due_time || '' : '')}"></div></div>
+    <div class="field"><span>着手日</span><input id="tstart" type="date" value="${esc(t ? t.start_date || '' : '')}" title="この日から始める。この日になるとトップの「今日」に上がります"></div>
     <div class="field"><span>繰り返し</span><select id="trep">${opts.map((o, i) => `<option value="${i === 0 ? '' : i - 1}" ${String(w) === (i === 0 ? '' : String(i - 1)) ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
     <div class="field"><span>押したときに開くページ</span><input id="turl" value="${esc(t ? t.open_url || '' : '')}" placeholder="https://…(空なら自動)"></div>
-    <div class="hint">締切がないタスクは「締切なし」にまとまります。開くページが空のときは、その授業・会社のリンクを使います。</div>
+    <div class="hint">締切がないタスクは「締切なし」にまとまります。着手日(なくてもよい)になると、トップの「今日」に「今日から始める」で上がります。開くページが空のときは、その授業・会社のリンクを使います。</div>
     <div class="acts">${t ? `<button class="btn danger l" data-tdel="${t.id}">消す</button>` : ''}<button class="btn" data-close>やめる</button><button class="btn pri" data-tsave="${t ? t.id : ''}" data-cid="${containerId}">${t ? '保存' : '足す'}</button></div>`);
 }
 
@@ -442,6 +476,8 @@ async function render() {
   if (!S.kinds) S.kinds = await api('GET', '/kinds').catch(() => []);
   try {
     $('#main').innerHTML = await VIEWS[S.screen]();
+    if (S.qfocus && $('#qin')) $('#qin').focus();
+    S.qfocus = false;
   } catch (e) {
     $('#main').innerHTML = bar('うまく読めませんでした') + `<div class="col">${emptyState(ILL.desk, '本体から読めませんでした', e.message)}</div>`;
   }
@@ -532,6 +568,15 @@ document.addEventListener('click', async (e) => {
     if (d.domsave !== undefined) { await api('PATCH', '/settings/mail', { university_domain: $('#udom').value }); toast('保存しました。次の読み込みから使います'); render(); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
     if (d.addtop !== undefined) { await addTaskFromTop(); return; }
+    if (d.qadd !== undefined) { await quickSubmit(); return; }
+    if (d.qai !== undefined) {
+      const on = !el.classList.contains('on');
+      await api('PATCH', '/quick-input', { ai: on });
+      const keep = $('#qin')?.value || '';
+      await render();
+      if ($('#qin')) { $('#qin').value = keep; $('#qin').focus(); }
+      return;
+    }
     if (d.lopen) { await api('POST', `/links/${d.lopen}/open`); toast('開きました'); return; }
     if (d.topen) { await api('POST', `/tasks/${d.topen}/open`); toast('開きました'); return; }
     if (d.ladd !== undefined) {
@@ -564,7 +609,7 @@ document.addEventListener('click', async (e) => {
     if (d.addt !== undefined) { taskForm(null, S.cont); return; }
     if (d.edit) { taskForm(S.c.tasks.find((t) => t.id === +d.edit), S.cont); return; }
     if (d.tsave !== undefined) {
-      const data = { name: $('#tname').value, due_date: $('#tdate').value, due_time: $('#ttime').value.trim(), repeat_weekday: $('#trep').value, open_url: $('#turl').value };
+      const data = { name: $('#tname').value, due_date: $('#tdate').value, due_time: $('#ttime').value.trim(), repeat_weekday: $('#trep').value, open_url: $('#turl').value, start_date: $('#tstart').value };
       if (d.tsave) await api('PATCH', `/tasks/${d.tsave}`, data);
       else await api('POST', '/tasks', { ...data, container_id: +($('#tcid') ? $('#tcid').value : d.cid) });
       closeModal(); toast(d.tsave ? '直しました' : `「${data.name}」を足しました`); render(); return;
@@ -629,6 +674,7 @@ document.addEventListener('change', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'qin') { e.preventDefault(); quickSubmit(); return; }
   if (e.key === 'Enter' && !e.isComposing && e.target.closest('.modal') && e.target.tagName === 'INPUT') {
     const pri = $('#layer .btn.pri');
     pri && pri.click();

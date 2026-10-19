@@ -1,7 +1,8 @@
-"""トップ画面の中身をまとめて作る(要件 F3・F6・F21、基本設計 S1、API A1)。"""
+"""トップ画面の中身をまとめて作る(要件 F3・F6・F16・F17・F21、基本設計 S1、API A1)。"""
 from datetime import date, timedelta
 
 import containers
+import quick
 import tasks
 import timetable
 
@@ -36,8 +37,12 @@ def build(con, today=None):
     ordered = sorted(rows, key=lambda r: _task_key(r, sort_first))
     overdue = [item(r) for r in ordered if r["due_date"] and r["due_date"] < t0]
     today_ = [item(r) for r in ordered if r["due_date"] == t0]
-    week = [item(r) for r in ordered if r["due_date"] and t0 < r["due_date"] <= week_end]
-    nodue = [item(r) for r in sorted((r for r in rows if not r["due_date"]), key=lambda r: r["created_at"])]
+    # 着手日で「今日」に上がったタスク:今日が締切のものの下に「今日から始める」でまとめる(F16・Q3)
+    def is_started(r):
+        return bool(r["start_date"]) and r["start_date"] <= t0 and (not r["due_date"] or r["due_date"] > t0)
+    started = [item(r) for r in ordered if is_started(r)]
+    week = [item(r) for r in ordered if r["due_date"] and t0 < r["due_date"] <= week_end and not is_started(r)]
+    nodue = [item(r) for r in sorted((r for r in rows if not r["due_date"] and not is_started(r)), key=lambda r: r["created_at"])]
 
     # 今日の時間・明日の時間(①では時間割の授業だけ。予定は作る順番③)
     tomorrow = today + timedelta(days=1)
@@ -72,7 +77,7 @@ def build(con, today=None):
 
     # ゲージ:全体1本。押すと種類ごとと、今日・今週にタスクがある入れ物(F6・Q30)
     ov = containers.overview(con, today)
-    near = {t["container_id"] for t in today_ + week + overdue}
+    near = {t["container_id"] for t in today_ + started + week + overdue}
     gauge_items = [i for k in ov["kinds"] for i in k["items"] if i["id"] in near]
 
     # お知らせ(2段目)。①で出せるものだけ
@@ -118,7 +123,8 @@ def build(con, today=None):
         "links": link_rows,
         "notices": notices,
         "done_questions": worklog.open_done_questions(con, today),
-        "overdue": overdue, "today_tasks": today_, "week": week, "nodue": nodue,
+        "overdue": overdue, "today_tasks": today_, "started": started, "week": week, "nodue": nodue,
+        "quick_ai": quick.ai_on(con),
         "classes_today": classes_today, "classes_tomorrow": classes_tomorrow,
         "held_today": held(today), "held_tomorrow": held(tomorrow),
         "events_today": events(today), "events_tomorrow": events(tomorrow),

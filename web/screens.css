@@ -222,3 +222,10 @@
 .shdrop label{margin-top:6px;cursor:pointer}
 .shrow{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto minmax(0,1fr) auto;gap:6px;align-items:center;margin:4px 0}
 .shrow input{min-width:0}
+
+/* 1行入力(F17)と着手日(F16) */
+.quick .qrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.quick .qrow input{flex:1 1 220px;min-width:0;border:1px solid var(--line2);border-radius:6px;padding:6px 10px;background:var(--win);font-size:13px}
+.quick .qrow input:disabled{opacity:.6}
+.quick .hint{margin-top:5px}
+.mk-start{background:var(--blue-wash);color:var(--blue);border:1px solid var(--blue)}

@@ -1,6 +1,7 @@
 """タスク(要件 F2)。
 
 締切は日付が必須で時刻は任意。毎週の繰り返しは、1つ完了すると次の週の分を出す。
+着手日(F16)はつけてもつけなくてもよい。着手日になると、トップの「今日」に上がる。
 タスクの名前を押したときに開くページは、自分で入れたもの → 入れ物のリンクの順に使う(基本設計 Q33)。
 メールのリンクは作る順番②でここに足す。
 """
@@ -33,6 +34,11 @@ def _clean(fields, creating):
             h, m = t.split(":")
             t = f"{int(h):02d}:{m}"
         out["due_time"] = t
+    if "start_date" in fields:
+        d = fields["start_date"] or None
+        if d and not DATE_RE.match(d):
+            raise UserError("着手日の日付の形がちがいます")
+        out["start_date"] = d
     if "repeat_weekday" in fields:
         w = fields["repeat_weekday"]
         out["repeat_weekday"] = None if w in (None, "") else int(w)
@@ -48,6 +54,8 @@ def _check_due(row):
         raise UserError("時刻をつけるときは、締切の日付も入れてください")
     if row.get("repeat_weekday") is not None and not row.get("due_date"):
         raise UserError("毎週の繰り返しには、最初の締切の日付が要ります")
+    if row.get("start_date") and row.get("due_date") and row["start_date"] > row["due_date"]:
+        raise UserError("着手日は、締切の日より前にしてください")
 
 
 def add(con, fields):
@@ -92,9 +100,11 @@ def set_done(con, tid, done, now=None):
         con.execute("UPDATE tasks SET done = 1, done_at = ? WHERE id = ?", (now.isoformat(timespec="seconds"), tid))
         if t["repeat_weekday"] is not None and t["due_date"]:
             nd = (date.fromisoformat(t["due_date"]) + timedelta(days=7)).isoformat()
+            # 着手日があれば、次の回も同じだけ前にずらしてつける
+            ns = (date.fromisoformat(t["start_date"]) + timedelta(days=7)).isoformat() if t["start_date"] else None
             nxt_id = con.execute(
-                "INSERT INTO tasks(container_id, name, due_date, due_time, repeat_weekday, repeat_from_task_id, open_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (t["container_id"], t["name"], nd, t["due_time"], t["repeat_weekday"], tid, t["open_url"]),
+                "INSERT INTO tasks(container_id, name, due_date, due_time, start_date, repeat_weekday, repeat_from_task_id, open_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (t["container_id"], t["name"], nd, t["due_time"], ns, t["repeat_weekday"], tid, t["open_url"]),
             ).lastrowid
     else:
         con.execute("UPDATE tasks SET done = 0, done_at = NULL, auto_done_by = NULL WHERE id = ?", (tid,))
@@ -131,7 +141,7 @@ def to_json(con, t):
     target, label = open_target(con, t)
     return {
         "id": t["id"], "container_id": t["container_id"], "name": t["name"],
-        "due_date": t["due_date"], "due_time": t["due_time"], "repeat_weekday": t["repeat_weekday"],
+        "due_date": t["due_date"], "due_time": t["due_time"], "start_date": t["start_date"], "repeat_weekday": t["repeat_weekday"],
         "done": bool(t["done"]), "open_url": t["open_url"], "open_target": target, "open_label": label,
         "ai": bool(t["ai_read"] and not t["ai_checked"]), "created_at": t["created_at"],
         "from_mail": bool(t["from_message_id"]),
