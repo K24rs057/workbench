@@ -37,6 +37,7 @@ def create_app(db_path=None):
     app.json.ensure_ascii = False
     db.init(db_path)
     import api_worklog  # noqa: F401  作業記録の API を bp に足す
+    import api_agent  # noqa: F401  モッチの API を bp に足す
     app.register_blueprint(api.bp)
 
     @app.get("/")
@@ -100,6 +101,7 @@ def main():
     parser = argparse.ArgumentParser(description=f"{APP_NAME}の本体")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--data-dir", help="data/ のかわりに使うフォルダ(画面の確かめ用。本物のデータを汚さない)")
+    parser.add_argument("--no-jobs", action="store_true", help="作業記録と通知を動かさない(画面の確かめ用。窓の名前を読まず、通知も出さない)")
     args = parser.parse_args()
     if already_running(args.port):
         print(f"{APP_NAME}の本体は、もう動いています(ポート {args.port})")
@@ -110,7 +112,8 @@ def main():
     import timetable
     with db.session(db_path) as con:
         timetable.refresh(con, force=True)
-    start_worklog(db_path)
+    if not args.no_jobs:
+        start_worklog(db_path)
     app.run(host=HOST, port=args.port, threaded=True, use_reloader=False)
 
 

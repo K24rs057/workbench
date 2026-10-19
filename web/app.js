@@ -196,6 +196,14 @@ async function statusSection() {
   const auto = Object.entries(st.autostart).map(([n, ok]) => `<div class="kv"><span>${esc(n)}</span><span class="${ok ? '' : 'late'}">${ok ? '登録されています' : '登録されていません'}</span></div>`).join('');
   return `<div class="sset"><h3>本体の様子</h3>${jobs}<div class="sh" style="margin-top:10px">タスクスケジューラ(PC を起動したら自動で動き出す)</div>${auto}</div>`;
 }
+function mochiSection() {
+  const st = window.Mochi ? Mochi.settings() : {};
+  const sw = (key, label, aria) => `<span class="tg"><button class="sw ${st[key] === '0' ? '' : 'on'}" data-msw="${key}" aria-label="${aria}"></button>${label}</span>`;
+  return `<div class="sset"><h3>モッチ(段取りさんのキャラクター)</h3>
+    <div class="kv"><span>ひとことの吹き出し</span><span>${sw('mochi_bubble', '出す(遅れている締切があるときだけ)', '吹き出しを出す')}</span></div>
+    <div class="kv"><span>ひまなときに動く</span><span>${sw('mochi_idle', '動く(跳ねる・歩く・居眠りなど)', 'ひまなときに動く')}</span></div>
+    <div class="kv"><span>置き場所</span><span><button class="btn sm" data-mreset>右下に戻す</button></span></div></div>`;
+}
 async function setView() {
   const kinds = await api('GET', '/kinds');
   S.kinds = kinds;
@@ -209,7 +217,7 @@ async function setView() {
     <div class="sset"><h3>種類</h3>${rows}<div class="rowb"><button class="btn" data-kadd>+ 種類を足す</button><span class="hint">灰色は未分類だけの色なので選べません。中に授業・会社・開発がある種類は消せません</span></div></div>
     ${await rulesSection()}
     ${await statusSection()}
-    <div class="sset"><h3>これから足す設定</h3><div class="hint">大学(学期の終わりの日)・作業記録(覚えた画面の名前)・本体の様子・モッチは、区切りごとにここに増えます。</div></div></div>`;
+    ${mochiSection()}</div>`;
 }
 
 
@@ -347,6 +355,8 @@ document.addEventListener('click', async (e) => {
       await api('DELETE', `/work-logs/${d.logdel}`); closeModal(); toast('消しました'); render(); return;
     }
     if (d.rdel) { await api('DELETE', `/window-rules/${d.rdel}`); toast('消しました。次に見たときにまた聞きます'); render(); return; }
+    if (d.msw) { await Mochi.set({ [d.msw]: el.classList.contains('on') ? '0' : '1' }); render(); return; }
+    if (d.mreset !== undefined) { await Mochi.resetPos(); toast('モッチを右下に戻しました'); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
     if (d.addtop !== undefined) { await addTaskFromTop(); return; }
     if (d.lopen) { await api('POST', `/links/${d.lopen}/open`); toast('開きました'); return; }
