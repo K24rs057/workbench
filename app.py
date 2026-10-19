@@ -9,7 +9,7 @@ import argparse
 import os
 from pathlib import Path
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory
 
 import api
 import backup
@@ -57,7 +57,33 @@ def create_app(db_path=None):
     def health():
         return jsonify(ok=True, name=APP_NAME, version=CODE_VERSION, pid=os.getpid())
 
+    @app.get("/auth/google")
+    def google_auth():
+        """Google の許可の画面へ(A31)。戻り先はこの PC の中だけ。"""
+        import gmail
+        try:
+            return redirect(gmail.auth_url(request.host_url + "auth/google/callback"))
+        except ValueError as e:
+            return _auth_page(str(e))
+
+    @app.get("/auth/google/callback")
+    def google_callback():
+        import gmail
+        if request.args.get("error"):
+            return _auth_page("許可をやめました。設定の「Google」から、いつでも許可し直せます")
+        try:
+            gmail.finish_auth(request.args.get("state"), request.url)
+        except Exception as e:  # 期限切れ・通行証が届かないなど
+            return _auth_page(f"許可できませんでした:{e}")
+        return redirect("/#set")
+
     return app
+
+
+def _auth_page(text):
+    from markupsafe import escape
+    return (f'<!doctype html><meta charset="utf-8"><title>段取りさん</title><body style="font-family:sans-serif;padding:40px">'
+            f'<p>{escape(text)}</p><p><a href="/#set">段取りさんに戻る</a></p></body>')
 
 
 def start_worklog(db_path):
@@ -65,6 +91,7 @@ def start_worklog(db_path):
     import threading
     import time
 
+    import gmail
     import mails
     import notify
     import outlook
@@ -86,6 +113,13 @@ def start_worklog(db_path):
                     mails.run_claude_jobs(con)
             except Exception as e:
                 _log_error(db_path, "Outlook", e)
+            try:  # Gmail も10分ごと。許可がまだなら何もしない(F11・F20)
+                with db.session(db_path) as con:
+                    gmail.refresh(con)
+                with db.session(db_path) as con:
+                    mails.run_claude_jobs(con)
+            except Exception as e:
+                _log_error(db_path, "Gmail", e)
             time.sleep(60)
 
     threading.Thread(target=loop, daemon=True, name="worklog").start()

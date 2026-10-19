@@ -5,6 +5,7 @@
     python manage.py read-timetable             … 時間割をすぐ読み直す
     python manage.py install-autostart          … ログインしたら動き出す・止まったら動かし直す(タスクスケジューラ)
     python manage.py remove-autostart           … 上の登録を外す
+    python manage.py google-key <ファイル>        … Google Cloud で保存した合鍵のファイルから、ID と秘密の文字を .env に移す(中身は出さない)
 """
 import argparse
 import sys
@@ -22,7 +23,13 @@ def main(argv=None):
     sub.add_parser("read-timetable")
     sub.add_parser("install-autostart")
     sub.add_parser("remove-autostart")
+    s = sub.add_parser("google-key"); s.add_argument("path")
     a = p.parse_args(argv)
+    if a.cmd == "google-key":
+        import gmail
+        gmail.import_client_json(a.path)
+        print("Google の合鍵を .env に入れました。段取りさんの設定の「Google」から許可してください")
+        return 0
     if a.cmd in ("install-autostart", "remove-autostart"):
         import autostart
         st = autostart.install() if a.cmd == "install-autostart" else autostart.remove()

@@ -84,6 +84,11 @@ def update_container(con, cid, **fields):
         con.execute("UPDATE containers SET kind_id = ? WHERE id = ?", (fields["kind_id"], cid))
     if "ended" in fields:
         con.execute("UPDATE containers SET ended = ? WHERE id = ?", (1 if fields["ended"] else 0, cid))
+    if "company_domain" in fields:  # 企業のメールアドレスの @ から後ろ(F11)
+        d = (fields["company_domain"] or "").strip().lower().lstrip("@") or None
+        if d and "." not in d:
+            raise UserError("「example.co.jp」のように、@ から後ろを入れてください")
+        con.execute("UPDATE containers SET company_domain = ? WHERE id = ?", (d, cid))
     if "links_always_top" in fields:
         con.execute("UPDATE containers SET links_always_top = ? WHERE id = ?", (1 if fields["links_always_top"] else 0, cid))
 
@@ -160,6 +165,7 @@ def summary(con, c, today=None):
     return {
         "id": c["id"], "name": c["name"], "kind_id": c["kind_id"], "is_unsorted": bool(c["is_unsorted"]),
         "ended": bool(c["ended"]), "links_always_top": bool(c["links_always_top"]),
+        "company_domain": c["company_domain"],
         "next": nxt, "left": len(open_tasks), "done": done, "total": len(tasks),
         "progress": progress(done, len(tasks)),
         "week_minutes": week, "week_label": hours_label(week),

@@ -88,9 +88,10 @@ def build(con, today=None):
     new_mail = con.execute("SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN ('Forms', '提出受付')").fetchone()[0]
     if new_mail:
         notices.append({"kind": "mail", "text": f"新しい連絡 {new_mail}件", "count": new_mail})
-    oe = con.execute("SELECT value FROM settings WHERE key = 'outlook_error'").fetchone()
-    if oe:
-        notices.append({"kind": "error", "text": oe["value"]})
+    for key in ("outlook_error", "gmail_error"):
+        oe = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        if oe:
+            notices.append({"kind": "error", "text": oe["value"]})
     if ov["unsorted"]:
         notices.append({"kind": "unsorted", "text": f"未分類 {ov['unsorted']}件", "count": ov["unsorted"]})
 

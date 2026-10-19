@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 
 # 遅れの目安(Claude の案。基本設計 エラー「裏の仕事が止まっている」)。①で動く仕事だけ
 LIMITS = {"作業記録": timedelta(minutes=5), "通知": timedelta(minutes=5), "時間割の読み込み": timedelta(minutes=30),
-          "Outlook": timedelta(minutes=30)}
+          "Outlook": timedelta(minutes=30), "Gmail": timedelta(minutes=30)}
+OPTIONAL = {"Gmail"}  # Google の許可をしてから動く仕事。一度も動いていなければ出さない
 
 
 def jobs(con, now=None):
@@ -12,6 +13,8 @@ def jobs(con, now=None):
     out = []
     for job, limit in LIMITS.items():
         r = rows.get(job)
+        if job in OPTIONAL and not r:
+            continue
         last = r["last_run_at"] if r else None
         late = (last is None) or (now - datetime.fromisoformat(last) > limit)
         out.append({"job": job, "last_run_at": last, "late": late, "error": r["last_error"] if r else None})

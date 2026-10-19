@@ -4,6 +4,7 @@ import json
 from flask import jsonify, request
 
 import containers
+import gmail
 import mails
 from api import body, bp, con
 from containers import UserError
@@ -29,7 +30,7 @@ def messages_summary():
         if request.args.get("open"):
             c.execute("UPDATE messages SET seen = 1 WHERE seen = 0")
         asks = c.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
-        err = mails.setting(c, "outlook_error")
+        err = " / ".join(e for e in (mails.setting(c, "outlook_error"), mails.setting(c, "gmail_error")) if e) or None
         return jsonify(new=new, asks=asks, error=err)
 
 
@@ -121,7 +122,8 @@ def task_ai(tid):
 @bp.get("/settings/mail")
 def mail_settings():
     with con() as c:
-        return jsonify(university_domain=mails.setting(c, "university_domain") or "")
+        return jsonify(university_domain=mails.setting(c, "university_domain") or "",
+                       google={"state": gmail.state()}, gmail_error=mails.setting(c, "gmail_error"))
 
 
 @bp.patch("/settings/mail")
@@ -131,4 +133,64 @@ def mail_settings_set():
         raise UserError("「example.ac.jp」のように、@ から後ろを入れてください")
     with con() as c:
         mails.set_setting(c, "university_domain", d)
+        return jsonify(ok=True)
+
+
+@bp.delete("/held-events/<int:hid>")
+def held_delete(hid):
+    with con() as c:
+        mails.delete_held(c, hid)
+        return jsonify(ok=True)
+
+
+# ---------- バイト先(F20・Q21、S6-2) ----------
+def _baito_fields(b):
+    out = {}
+    if "name" in b:
+        nm = (b.get("name") or "").strip()
+        if not nm:
+            raise UserError("バイト先の名前を入れてください")
+        out["name"] = nm
+    if "domain" in b:
+        d = (b.get("domain") or "").strip().lower().lstrip("@") or None
+        if d and "." not in d:
+            raise UserError("「example.co.jp」のように、@ から後ろを入れてください")
+        out["domain"] = d
+    return out
+
+
+@bp.get("/baito")
+def baito_list():
+    with con() as c:
+        out = []
+        for b in c.execute("SELECT * FROM baito_places ORDER BY name"):
+            adds = [a["address"] for a in c.execute("SELECT address FROM baito_addresses WHERE baito_id = ?", (b["id"],))]
+            out.append({**dict(b), "addresses": adds})
+        return jsonify(out)
+
+
+@bp.post("/baito")
+def baito_add():
+    f = _baito_fields({"name": "", "domain": None, **body()})
+    with con() as c:
+        bid = c.execute("INSERT INTO baito_places(name, domain) VALUES (?, ?)", (f["name"], f["domain"])).lastrowid
+        return jsonify(id=bid)
+
+
+@bp.patch("/baito/<int:bid>")
+def baito_update(bid):
+    f = _baito_fields(body())
+    with con() as c:
+        for k, v in f.items():
+            c.execute(f"UPDATE baito_places SET {k} = ? WHERE id = ?", (v, bid))
+        return jsonify(ok=True)
+
+
+@bp.delete("/baito/<int:bid>")
+def baito_delete(bid):
+    """消すと、覚えた中継アドレスも忘れる。取り込んだメールは残し、バイト先の名前だけ外す。"""
+    with con() as c:
+        c.execute("DELETE FROM baito_addresses WHERE baito_id = ?", (bid,))
+        c.execute("UPDATE messages SET baito_id = NULL WHERE baito_id = ?", (bid,))
+        c.execute("DELETE FROM baito_places WHERE id = ?", (bid,))
         return jsonify(ok=True)

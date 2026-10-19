@@ -12,6 +12,7 @@ import containers
 
 BODY_DAYS = 90
 DEADLINE_WORDS = ("締切", "〆切", "締め切り", "期限", "提出")
+INTERVIEW_WORDS = ("面接", "面談")
 CLAUDE_PER_RUN = 5          # 1回の取り込みで Claude に読ませる数の上限(使用量を一度に使わない)
 TRIES = 3                   # 3回失敗したら「読み取れなかった」(Q6)
 URL_RE = re.compile(r"https?://[^\s<>\"'()()「」]+")
@@ -56,7 +57,8 @@ def _year_for(month, day, received):
         except ValueError:
             return None
         if d >= received.date() - timedelta(days=60):
-            return d
+            # 次の年にずらすのは、年明けすぐの日付だけ。半年より先になるなら、終わった日付とみなす
+            return d if d - received.date() <= timedelta(days=200) else None
     return None
 
 
@@ -94,6 +96,11 @@ def find_deadlines(text, received):
 
 def has_deadline_words(text):
     return any(w in (text or "") for w in DEADLINE_WORDS)
+
+
+def has_interview(text):
+    """「面接」「面談」があり、日付が書いてあるメール(AI ②に毎回渡す)。"""
+    return any(w in (text or "") for w in INTERVIEW_WORDS) and DATE_RE.search(text or "") is not None
 
 
 # ---------- 仕分け ----------
@@ -150,14 +157,30 @@ def ingest(con, msg, initial=False, today=None):
     if msg["category"] == "その他" and msg["subject"].startswith("学内連絡"):
         return mid  # 一斉配信は一覧に残すだけ。参加したいものは本人が足す(要件 F9、2026-10-19 決定)
     text = msg["subject"] + "\n" + body
-    found = find_deadlines(text, received)
-    if found:
-        d, tm, _ = found[0]
-        _add_task(con, msg, mid, d, tm, today, initial, ai=False, excerpt=None)
-    elif has_deadline_words(text):
-        con.execute("INSERT INTO claude_jobs(kind, target, tries, next_try_at) VALUES ('締切の読み取り', ?, 0, NULL)", (str(mid),))
+    if msg["category"] == "アルバイト":
+        if not msg.get("baito_id"):
+            _ask_baito(con, msg, mid)
+    else:  # アルバイトは入れ物を作らないので、締切のタスクにはしない(F20)
+        found = find_deadlines(text, received)
+        if found:
+            d, tm, _ = found[0]
+            _add_task(con, msg, mid, d, tm, today, initial, ai=False, excerpt=None)
+        elif has_deadline_words(text):
+            con.execute("INSERT INTO claude_jobs(kind, target, tries, next_try_at) VALUES ('締切の読み取り', ?, 0, NULL)", (str(mid),))
+    if has_interview(text):  # 決まった書き方で見つかっても、候補日か決定かは毎回 Claude に判断させる(AI ②)
+        con.execute("INSERT INTO claude_jobs(kind, target, tries, next_try_at) VALUES ('面接の読み取り', ?, 0, NULL)", (str(mid),))
     _hold_class_change(con, msg, mid, received)
     return mid
+
+
+def _ask_baito(con, msg, mid):
+    """初めての中継アドレスは「どのバイト先?」と聞く(Q21)。同じアドレスで聞いている途中なら、もう聞かない。"""
+    sender = msg["sender"].lower()
+    if con.execute("SELECT 1 FROM notices n JOIN messages m ON m.id = n.message_id WHERE n.kind = 'バイト先の質問' AND n.answered = 0 AND m.sender = ?",
+                   (sender,)).fetchone():
+        return
+    con.execute("INSERT INTO notices(kind, body, message_id) VALUES ('バイト先の質問', ?, ?)",
+                (f"「{clean_subject(msg['subject'])}」は、どのバイト先からのメールですか?", mid))
 
 
 def _add_task(con, msg, mid, d, tm, today, initial, ai, excerpt, title=None):
@@ -197,7 +220,7 @@ def _hold_class_change(con, msg, mid, received):
         return
 
 
-# ---------- Claude に読ませる(AI ①) ----------
+# ---------- Claude に読ませる(AI ①・②) ----------
 DEADLINE_SCHEMA = {
     "type": "object",
     "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
@@ -209,14 +232,36 @@ DEADLINE_SYSTEM = ("あなたはメールから提出・申込の締切だけを
                    "date は YYYY-MM-DD、time は HH:MM か null。title は「第10回課題」のように短く。説明はしない。")
 
 
+INTERVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {"type": {"type": "string", "enum": ["決定", "候補", "不明"]},
+                   "title": {"type": "string"},
+                   "dates": {"type": "array", "items": {"type": "object", "properties": {
+                       "date": {"type": "string"}, "start": {"type": ["string", "null"]}, "end": {"type": ["string", "null"]}},
+                       "required": ["date", "start", "end"]}}},
+    "required": ["type", "title", "dates"],
+}
+INTERVIEW_SYSTEM = ("あなたはメールから面接・面談の日時を読み取る係です。相手が日時を決めて伝えているなら type は「決定」、"
+                    "いくつかの候補日から選ばせているなら「候補」、どちらかわからなければ「不明」。dates に日時を全部入れる。"
+                    "date は YYYY-MM-DD、start と end は HH:MM か null。title は「一次面接」のように短く。説明はしない。")
+JOBS = {"締切の読み取り": (DEADLINE_SYSTEM, DEADLINE_SCHEMA), "面接の読み取り": (INTERVIEW_SYSTEM, INTERVIEW_SCHEMA)}
+HM_RE = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def _hm(v):
+    return v if isinstance(v, str) and HM_RE.match(v) else None
+
+
 def run_claude_jobs(con, runner=None, now=None, today=None):
-    """たまっている締切の読み取りを、上限まで進める。上限に当たったら止めて、回数には数えない(エラー1)。"""
+    """たまっている締切・面接日の読み取りを、上限まで進める。上限に当たったら止めて、回数には数えない(エラー1)。"""
     import agent
-    runner = runner or (lambda s, p: agent.call_claude(s, p, DEADLINE_SCHEMA))
+    schemas = {sysp: sch for sysp, sch in JOBS.values()}
+    runner = runner or (lambda s, p: agent.call_claude(s, p, schemas[s]))
     now = now or datetime.now()
     today = today or date.today()
-    jobs = con.execute("SELECT * FROM claude_jobs WHERE kind = '締切の読み取り' AND (next_try_at IS NULL OR next_try_at <= ?) ORDER BY id LIMIT ?",
-                       (now.isoformat(timespec="seconds"), CLAUDE_PER_RUN)).fetchall()
+    marks = ",".join("?" * len(JOBS))
+    jobs = con.execute(f"SELECT * FROM claude_jobs WHERE kind IN ({marks}) AND (next_try_at IS NULL OR next_try_at <= ?) ORDER BY id LIMIT ?",
+                       (*JOBS, now.isoformat(timespec="seconds"), CLAUDE_PER_RUN)).fetchall()
     done = 0
     for j in jobs:
         m = con.execute("SELECT * FROM messages WHERE id = ?", (int(j["target"]),)).fetchone()
@@ -225,7 +270,7 @@ def run_claude_jobs(con, runner=None, now=None, today=None):
             continue
         prompt = json.dumps({"received": m["received_at"][:10], "subject": m["subject"], "body": (m["body"] or "")[:4000]}, ensure_ascii=False)
         try:
-            res = runner(DEADLINE_SYSTEM, prompt)
+            res = runner(JOBS[j["kind"]][0], prompt)
         except agent.UsageLimit:
             set_setting(con, "claude_limited_at", now.isoformat(timespec="seconds"))
             break
@@ -238,18 +283,116 @@ def run_claude_jobs(con, runner=None, now=None, today=None):
                 con.execute("UPDATE claude_jobs SET tries = ?, next_try_at = ?, last_error = ? WHERE id = ?",
                             (tries, (now + timedelta(minutes=10)).isoformat(timespec="seconds"), str(e)[:200], j["id"]))
             continue
-        msg = dict(m) | {"received_at": datetime.fromisoformat(m["received_at"])}
-        for it in (res.get("items") or [])[:1]:
-            try:
-                d = date.fromisoformat(it["date"])
-            except (ValueError, TypeError, KeyError):
-                continue
-            tm = it.get("time") if it.get("time") and re.match(r"^\d{1,2}:\d{2}$", it["time"]) else None
-            _add_task(con, msg, m["id"], d, tm, today, initial=False, ai=True,
-                      excerpt=f"{it.get('title', '')}:{it['date']} {tm or ''}".strip(), title=it.get("title") or None)
+        if j["kind"] == "面接の読み取り":
+            _interview_result(con, m, res or {}, today)
+        else:
+            msg = dict(m) | {"received_at": datetime.fromisoformat(m["received_at"])}
+            for it in (res.get("items") or [])[:1]:
+                try:
+                    d = date.fromisoformat(it["date"])
+                except (ValueError, TypeError, KeyError):
+                    continue
+                tm = _hm(it.get("time"))
+                _add_task(con, msg, m["id"], d, tm, today, initial=False, ai=True,
+                          excerpt=f"{it.get('title', '')}:{it['date']} {tm or ''}".strip(), title=it.get("title") or None)
         con.execute("DELETE FROM claude_jobs WHERE id = ?", (j["id"],))
         done += 1
     return done
+
+
+def interview_title(con, m, title):
+    """予定の名前。「一次面接:○○株式会社」のように、相手の名前をつける。"""
+    who = None
+    if m["container_id"]:
+        r = con.execute("SELECT name FROM containers WHERE id = ?", (m["container_id"],)).fetchone()
+        who = r["name"] if r else None
+    if not who and m["baito_id"]:
+        r = con.execute("SELECT name FROM baito_places WHERE id = ?", (m["baito_id"],)).fetchone()
+        who = r["name"] if r else None
+    t = (title or "面接").strip()[:20]
+    return f"{t}:{who}" if who else t
+
+
+def hold_interview(con, m, d, start, end, title, ai_excerpt):
+    """面接の日時を預かった予定にする(Google カレンダーは作る順番③)。同じメールの同じ日時は1つ。"""
+    start_at = f"{d}T{start}" if start else d
+    if con.execute("SELECT 1 FROM deleted_items WHERE external_id = ? AND what = '予定'", (m["external_id"],)).fetchone():
+        return None
+    if con.execute("SELECT 1 FROM held_events WHERE from_message_id = ? AND start_at = ?", (m["id"], start_at)).fetchone():
+        return None
+    end_at = f"{d}T{end}" if start and end else None
+    return con.execute(
+        "INSERT INTO held_events(title, start_at, end_at, reason, container_id, from_message_id, ai_read, ai_excerpt) "
+        "VALUES (?, ?, ?, 'カレンダーがまだつながっていない', ?, ?, 1, ?)",
+        (interview_title(con, m, title), start_at, end_at, m["container_id"], m["id"], ai_excerpt)).lastrowid
+
+
+def _interview_result(con, m, res, today):
+    dates = []
+    for it in res.get("dates") or []:
+        try:
+            d = date.fromisoformat(it["date"])
+        except (ValueError, TypeError, KeyError):
+            continue
+        if d >= today:  # 過ぎた日は入れない
+            dates.append({"date": d.isoformat(), "start": _hm(it.get("start")), "end": _hm(it.get("end"))})
+    if not dates:
+        return
+    title = res.get("title") or "面接"
+    if res.get("type") == "決定":
+        for x in dates[:3]:
+            hold_interview(con, m, x["date"], x["start"], x["end"], title, f"決まった日時:{x['date']} {x['start'] or ''}".strip())
+        return
+    # 候補日・判断できなかったときは、ボタンで選んでもらう(Q22)
+    body = json.dumps({"text": f"「{clean_subject(m['subject'])}」に面接の候補日があります。決まった日を押してください",
+                       "title": title, "dates": dates[:10]}, ensure_ascii=False)
+    con.execute("INSERT INTO notices(kind, body, message_id, container_id) VALUES ('候補日', ?, ?, ?)", (body, m["id"], m["container_id"]))
+
+
+# ---------- 「確認してほしいこと」への答え(A27) ----------
+def answer_baito(con, n, baito_id=None, name=None):
+    """「どのバイト先?」の答え。中継アドレス(@ の前も全部)を覚え、同じアドレスのメールに名前をつける(Q21)。"""
+    m = con.execute("SELECT * FROM messages WHERE id = ?", (n["message_id"],)).fetchone()
+    if baito_id:
+        if not con.execute("SELECT 1 FROM baito_places WHERE id = ?", (baito_id,)).fetchone():
+            raise containers.UserError("そのバイト先はありません")
+    else:
+        name = (name or "").strip()
+        if not name:
+            raise containers.UserError("バイト先を選ぶか、名前を入れてください")
+        baito_id = con.execute("INSERT INTO baito_places(name) VALUES (?)", (name,)).lastrowid
+    if m:
+        if not con.execute("SELECT 1 FROM baito_addresses WHERE address = ?", (m["sender"],)).fetchone():
+            con.execute("INSERT INTO baito_addresses(baito_id, address) VALUES (?, ?)", (baito_id, m["sender"]))
+        con.execute("UPDATE messages SET baito_id = ? WHERE sender = ? AND category = 'アルバイト'", (baito_id, m["sender"]))
+        con.execute("UPDATE notices SET answered = 1 WHERE kind = 'バイト先の質問' AND message_id IN (SELECT id FROM messages WHERE sender = ?)", (m["sender"],))
+    con.execute("UPDATE notices SET answered = 1 WHERE id = ?", (n["id"],))
+
+
+def answer_candidate(con, n, index=None, none=False):
+    """候補日のボタン。押した日を預かった予定にする(Q22)。"""
+    if not none:
+        data = json.loads(n["body"])
+        try:
+            x = data["dates"][int(index)]
+        except (TypeError, ValueError, IndexError, KeyError):
+            raise containers.UserError("その候補日はありません")
+        m = con.execute("SELECT * FROM messages WHERE id = ?", (n["message_id"],)).fetchone()
+        if m:
+            hold_interview(con, m, x["date"], x["start"], x["end"], data.get("title"), f"候補日から選んだ日:{x['date']} {x['start'] or ''}".strip())
+    con.execute("UPDATE notices SET answered = 1 WHERE id = ?", (n["id"],))
+
+
+def delete_held(con, hid):
+    """預かった予定を消す。メールから入ったものは、次に読んでも戻さない。"""
+    h = con.execute("SELECT * FROM held_events WHERE id = ?", (hid,)).fetchone()
+    if not h:
+        raise containers.UserError("その予定はありません")
+    if h["from_message_id"]:
+        m = con.execute("SELECT external_id FROM messages WHERE id = ?", (h["from_message_id"],)).fetchone()
+        if m:
+            con.execute("INSERT INTO deleted_items(external_id, what) VALUES (?, '予定')", (m["external_id"],))
+    con.execute("DELETE FROM held_events WHERE id = ?", (hid,))
 
 
 def purge_bodies(con, now=None):

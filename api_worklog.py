@@ -1,9 +1,11 @@
 """作業記録と「確認してほしいこと」のやりとり(基本設計 A7〜A10・A26・A27、S6-4)。"""
+import json
 from datetime import datetime
 
 from flask import jsonify
 
 import containers
+import mails
 import tasks
 import worklog
 from api import body, bp, con
@@ -109,18 +111,32 @@ def notices_list():
             if r["kind"] == "window":
                 pw = c.execute("SELECT title FROM pending_windows WHERE id = ?", (r["pending_window_id"],)).fetchone()
                 item["pattern"] = pw["title"].split("|", 1)[1] if pw else ""
+            elif r["kind"] == "候補日":
+                item["data"] = json.loads(r["body"])
+            elif r["kind"] == "バイト先の質問":
+                m = c.execute("SELECT sender FROM messages WHERE id = ?", (r["message_id"],)).fetchone()
+                item["sender"] = m["sender"] if m else ""
             out.append(item)
-        return jsonify(notices=out, options=[dict(o) for o in opts])
+        baito = [dict(b) for b in c.execute("SELECT id, name FROM baito_places ORDER BY name")]
+        return jsonify(notices=out, options=[dict(o) for o in opts], baito=baito)
 
 
 @bp.post("/notices/<int:nid>/answer")
 def notices_answer(nid):
     b = body()
     with con() as c:
-        try:
-            worklog.answer_window(c, nid, b.get("container_id"), bool(b.get("ignore")), b.get("pattern"))
-        except ValueError as e:
-            raise UserError(str(e))
+        n = c.execute("SELECT * FROM notices WHERE id = ?", (nid,)).fetchone()
+        if not n:
+            raise UserError("その質問はもうありません")
+        if n["kind"] == "バイト先の質問":
+            mails.answer_baito(c, n, b.get("baito_id"), b.get("name"))
+        elif n["kind"] == "候補日":
+            mails.answer_candidate(c, n, b.get("index"), bool(b.get("none")))
+        else:
+            try:
+                worklog.answer_window(c, nid, b.get("container_id"), bool(b.get("ignore")), b.get("pattern"))
+            except ValueError as e:
+                raise UserError(str(e))
         return jsonify(ok=True)
 
 

@@ -180,6 +180,8 @@ async function insideView() {
     body = c.is_unsorted ? '<div class="sec hint">未分類は、名前や種類を変えたり、終了にしたりできません。</div>' : `<div class="sec">
       <div class="field"><span>名前</span><input id="cname" value="${esc(c.name)}"></div>
       <div class="field"><span>種類</span><select id="ckind">${(S.kinds || []).map((k) => `<option value="${k.id}" ${k.id === c.kind_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></div>
+      ${isJob(c) ? `<div class="field"><span>会社のメールアドレスの @ から後ろ</span><input id="cdom" value="${esc(c.company_domain || '')}" placeholder="example.co.jp(なくてもよい)"></div>
+      <div class="hint">ここから届いたメールと、件名・本文に「${esc(c.name)}」が入ったメールを、この会社の連絡にします</div>` : ''}
       <div class="rowb"><button class="btn pri" data-csave>保存</button></div></div>
       <div class="sec"><div class="rowb"><button class="btn" data-cend>終了にする</button><span class="hint">一覧とトップから見えなくなります。中身は残り、あとで戻せます</span></div>
       <div class="rowb"><button class="btn danger" data-cdel ${c.deletable ? '' : 'disabled'}>消す</button><span class="hint">${c.deletable ? '中身が空なので消せます' : '中身があるので消せません。かわりに「終了にする」を使ってください'}</span></div></div>`;
@@ -203,12 +205,24 @@ async function statusSection() {
   const auto = Object.entries(st.autostart).map(([n, ok]) => `<div class="kv"><span>${esc(n)}</span><span class="${ok ? '' : 'late'}">${ok ? '登録されています' : '登録されていません'}</span></div>`).join('');
   return `<div class="sset"><h3>本体の様子</h3>${jobs}<div class="sh" style="margin-top:10px">タスクスケジューラ(PC を起動したら自動で動き出す)</div>${auto}</div>`;
 }
+const isJob = (c) => ((S.kinds || []).find((k) => k.id === c.kind_id) || {}).name === '就活';
 async function mailSection() {
-  const [ms, bl] = await Promise.all([api('GET', '/settings/mail'), api('GET', '/blocked-senders')]);
+  const [ms, bl, bt] = await Promise.all([api('GET', '/settings/mail'), api('GET', '/blocked-senders'), api('GET', '/baito')]);
+  const g = ms.google;
+  const gtext = { 合鍵なし: 'まだ合鍵がありません。手順のとおり Google Cloud で合鍵を作ってください', 未許可: '合鍵はあります。下のボタンで、Google の画面から許可してください', 許可済み: 'Gmail を読むことを許可しています(読むだけ)' }[g.state];
+  const baito = bt.map((b) => `<div class="krow"><input class="nmin" style="border-color:var(--line2)" value="${esc(b.name)}" data-btname="${b.id}" aria-label="バイト先の名前">
+    <input class="nmin" style="width:170px;border-color:var(--line2)" value="${esc(b.domain || '')}" data-btdom="${b.id}" placeholder="@ から後ろ(直接届くとき)" aria-label="バイト先のアドレス">
+    <span class="hint">${b.addresses.length ? '覚えた中継アドレス ' + b.addresses.length + '件' : ''}</span><button class="link danger" data-btdel="${b.id}">消す</button></div>`).join('');
   return `<div class="sset"><h3>メールと連絡</h3>
     <div class="kv"><span>大学のアドレスの形</span><span><input class="nmin" style="width:220px;border-color:var(--line2)" id="udom" value="${esc(ms.university_domain)}" placeholder="example.ac.jp"> <button class="btn sm" data-domsave>保存</button></span></div>
     <div class="hint" style="margin:2px 0 8px">@ から後ろ。この形(と、その下のアドレス)から届いたメールだけを、大学の連絡として読みます。PC の中にだけ保存します</div>
-    <div class="kv"><span>止めた差出人</span><span>${bl.length ? bl.map((b) => `<div>${esc(b.address)} <button class="link" data-bdel="${b.id}">外す</button></div>`).join('') : 'なし'}</span></div></div>`;
+    <div class="kv"><span>止めた差出人</span><span>${bl.length ? bl.map((b) => `<div>${esc(b.address)} <button class="link" data-bdel="${b.id}">外す</button></div>`).join('') : 'なし'}</span></div>
+    <div class="hint" style="margin:2px 0 8px">リクナビ・マイナビ・理系ナビ・学情からの「受付中」「おすすめ」などの宣伝は、初めから取り込みません</div>
+    <div class="kv"><span>バイト先</span><span>${baito || 'まだありません'}<div class="rowb"><button class="btn sm" data-btadd>+ バイト先を足す</button></div></span></div>
+    <div class="hint" style="margin:2px 0 8px">Indeed・タウンワークなどの中継アドレスは、初めて届いたときに「どのバイト先?」と聞いて覚えます。お店から直接届くときは、@ から後ろを入れておきます</div></div>
+    <div class="sset"><h3>Google</h3>
+    <div class="kv"><span>Gmail</span><span>${esc(g.state)} ${g.state === '合鍵なし' ? '' : `<a class="btn sm" href="/auth/google">${g.state === '許可済み' ? '許可し直す' : 'Google と連携する'}</a>`}</span></div>
+    <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div></div>`;
 }
 function mochiSection() {
   const st = window.Mochi ? Mochi.settings() : {};
@@ -294,6 +308,14 @@ async function mailViewOld() {
        <div class="field"><span>覚える文字</span><input id="pat${n.id}" value="${esc(n.pattern)}"></div>
        <div class="hint">窓の名前にこの文字が入っていたら、同じ答えにします。短くすると、広く当てはまります(例:「情報科学演習」)</div>
        <div class="rowb"><select id="sel${n.id}"><option value="">どれの作業?</option>${opts}</select><button class="btn sm pri" data-ans="${n.id}">これにする</button><button class="btn sm" data-ansno="${n.id}">記録しない</button></div></div>`
+    : n.kind === 'バイト先の質問'
+    ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">差出人 ${esc(n.sender || '')}。応募サイトの中継アドレスです。一度答えれば、次からは聞きません</div>
+       <div class="rowb"><select id="bsel${n.id}"><option value="">新しいバイト先</option>${(d.baito || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>
+       <input class="nmin" style="border-color:var(--line2)" id="bnew${n.id}" placeholder="新しいときは名前(○○カフェ)"><button class="btn sm pri" data-bans="${n.id}">これにする</button></div></div>`
+    : n.kind === '候補日'
+    ? `<div class="qcard"><b>${esc(n.data.text)}</b><div class="s">Claude が読み取った候補日です。相手に返事をして決まったら、その日を押すと予定に入ります</div>
+       <div class="rowb">${n.data.dates.map((x, i) => `<button class="btn sm" data-cand="${n.id}" data-ci="${i}">${esc(x.date.slice(5).replace('-', '/'))}(${WEEK[new Date(x.date + 'T00:00').getDay()]}) ${esc(x.start || '')}${x.end ? '〜' + esc(x.end) : ''}</button>`).join('')}
+       <button class="btn sm" data-candno="${n.id}">どれも入れない</button></div></div>`
     : `<div class="qcard"><b>${esc(n.body)}</b></div>`;
   const cats = [['asks', '確認してほしいこと', d.notices.length], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
   const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${(S.mcat || 'mails') === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
@@ -337,7 +359,7 @@ async function mailView() {
         S.mailDetail = m;
         const body = m.body_gone ? '<p class="hint">本文は90日で消えています。Outlook または Gmail で開いてください。</p>' : `<div class="mbody">${esc(m.body).slice(0, 20000)}</div>`;
         const links = m.links.length ? `<div class="sh" style="margin-top:12px">本文の中のリンク</div><div class="links">${m.links.slice(0, 8).map((u) => `<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, '').slice(0, 40))}</a>`).join('')}</div>` : '';
-        const made = m.tasks.length || m.held.length ? `<div class="sh" style="margin-top:12px">このメールから入ったもの</div>${m.tasks.map((t) => `<div class="tl"><span>タスク</span><span>${esc(t.name)} ${esc(t.due_date || '')} ${esc(t.due_time || '')} <button class="link danger" data-mtdel="${t.id}">消す</button></span></div>`).join('')}${m.held.map((h) => `<div class="tl"><span>予定</span><span>${esc(h.title)} ${esc(h.start_at)}</span></div>`).join('')}` : '';
+        const made = m.tasks.length || m.held.length ? `<div class="sh" style="margin-top:12px">このメールから入ったもの</div>${m.tasks.map((t) => `<div class="tl"><span>タスク</span><span>${esc(t.name)} ${esc(t.due_date || '')} ${esc(t.due_time || '')} <button class="link danger" data-mtdel="${t.id}">消す</button></span></div>`).join('')}${m.held.map((h) => `<div class="tl"><span>予定</span><span>${esc(h.title)} ${esc(h.start_at.replace('T', ' '))} <button class="link danger" data-hdel="${h.id}">消す</button></span></div>`).join('')}` : '';
         right = `<div class="reader"><h2>${esc(m.subject)}</h2><div class="meta">${esc(CATN[m.category] || m.category)} ・ ${esc(m.sender)} ・ ${esc(m.received_at.replace('T', ' ').slice(0, 16))}${m.container ? ' ・ ' + esc(m.container) : ''}</div>${body}${links}${made}
           <div class="acts mact"><div><button class="btn sm" data-mresort="${m.id}">振り分けを直す</button><span>このメールは「${esc(m.container || 'その他')}」に振り分けられています。ちがうときに直します。次から、この差出人のメールは直したほうに入ります</span></div>
           <div><button class="btn sm" data-mblock="${esc(m.sender)}">この差出人は取り込まない</button><span>宣伝など、いらない差出人のときに押します。次から、この差出人のメールは段取りさんに入りません。メールそのものは消えず、設定の「止めた差出人」から戻せます</span></div></div></div>`;
@@ -443,6 +465,22 @@ document.addEventListener('click', async (e) => {
     }
     if (d.aiok) { await api('POST', `/tasks/${d.aiok}/ai-checked`); closeModal(); render(); return; }
     if (d.bdel) { await api('DELETE', `/blocked-senders/${d.bdel}`); toast('外しました'); render(); return; }
+    if (d.btadd !== undefined) {
+      modal(`<h3>バイト先を足す</h3><div class="field"><span>名前</span><input id="btn0" placeholder="○○カフェ 博多店"></div>
+        <div class="field"><span>@ から後ろ(お店から直接届くときだけ)</span><input id="btd0" placeholder="example.co.jp"></div>
+        <div class="acts"><button class="btn" data-close>やめる</button><button class="btn pri" data-btsave>足す</button></div>`);
+      return;
+    }
+    if (d.btsave !== undefined) { await api('POST', '/baito', { name: $('#btn0').value, domain: $('#btd0').value }); closeModal(); toast('足しました'); render(); return; }
+    if (d.btdel) { await api('DELETE', `/baito/${d.btdel}`); toast('消しました'); render(); return; }
+    if (d.bans) {
+      const v = $('#bsel' + d.bans).value, nm = $('#bnew' + d.bans).value;
+      await api('POST', `/notices/${d.bans}/answer`, v ? { baito_id: +v } : { name: nm });
+      toast('覚えました。次から、このアドレスは自動でつけます'); render(); return;
+    }
+    if (d.cand !== undefined && d.ci !== undefined) { await api('POST', `/notices/${d.cand}/answer`, { index: +d.ci }); toast('予定に入れました'); render(); return; }
+    if (d.candno) { await api('POST', `/notices/${d.candno}/answer`, { none: true }); toast('入れずに閉じました'); render(); return; }
+    if (d.hdel) { await api('DELETE', `/held-events/${d.hdel}`); toast('消しました。次に読んでも戻しません'); render(); return; }
     if (d.domsave !== undefined) { await api('PATCH', '/settings/mail', { university_domain: $('#udom').value }); toast('保存しました。次の読み込みから使います'); render(); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
     if (d.addtop !== undefined) { await addTaskFromTop(); return; }
@@ -495,7 +533,7 @@ document.addEventListener('click', async (e) => {
       if (next) toast(`「${t ? t.name : 'タスク'}」を完了にしました`, () => api('PATCH', `/tasks/${d.done}`, { done: false }));
       return;
     }
-    if (d.csave !== undefined) { await api('PATCH', `/containers/${S.cont}`, { name: $('#cname').value, kind_id: +$('#ckind').value }); toast('保存しました'); render(); return; }
+    if (d.csave !== undefined) { await api('PATCH', `/containers/${S.cont}`, { name: $('#cname').value, kind_id: +$('#ckind').value, ...($('#cdom') ? { company_domain: $('#cdom').value } : {}) }); toast('保存しました'); render(); return; }
     if (d.cend !== undefined) { await api('PATCH', `/containers/${S.cont}`, { ended: true }); toast(`「${S.c.name}」を終了にしました`, () => api('PATCH', `/containers/${S.cont}`, { ended: false })); go('cont'); return; }
     if (d.cdel !== undefined) {
       if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに消す'; return; }
@@ -524,6 +562,8 @@ document.addEventListener('change', async (e) => {
   try {
     if (t.dataset.rpat) { await api('PATCH', `/window-rules/${t.dataset.rpat}`, { pattern: t.value }); toast('覚える文字を直しました'); }
     if (t.dataset.kname) { await api('PATCH', `/kinds/${t.dataset.kname}`, { name: t.value }); S.kinds = null; toast('種類の名前を変えました'); }
+    if (t.dataset.btname) { await api('PATCH', `/baito/${t.dataset.btname}`, { name: t.value }); toast('直しました'); }
+    if (t.dataset.btdom !== undefined) { await api('PATCH', `/baito/${t.dataset.btdom}`, { domain: t.value }); toast('直しました'); }
     if (t.dataset.kcolor) { await api('PATCH', `/kinds/${t.dataset.kcolor}`, { color: t.value }); S.kinds = null; render(); }
     if (t.dataset.pickfor && t.value) { await api('PATCH', `/tasks/${t.dataset.pickfor}`, { container_id: +t.value }); toast('移しました'); await sortModal(); }
   } catch (err) {
