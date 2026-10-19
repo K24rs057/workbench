@@ -161,14 +161,21 @@ async function insideView() {
     body = `<div class="sec"><div class="rowb"><button class="btn pri" data-addt>+ 「${esc(c.name)}」にタスクを足す</button><span class="hint">締切・時刻・毎週の繰り返し・押したときに開くページを入れられます</span></div></div>
       <div class="sec">${c.tasks.length ? c.tasks.map((t) => taskRow(t)).join('') : emptyState(ILL.desk, 'タスクはまだありません', '「タスクを足す」から入れてください。')}</div>`;
   } else if (S.ctab === 'log') {
-    const logs = await api('GET', `/containers/${S.cont}/logs`);
+    const [logs, commits] = await Promise.all([api('GET', `/containers/${S.cont}/logs`), c.repo_path ? api('GET', `/containers/${S.cont}/commits`) : []]);
     S.logs = logs;
-    const byDay = {};
-    logs.forEach((l) => { (byDay[l.started_at.slice(0, 10)] ||= []).push(l); });
     const hm = (iso) => (iso ? iso.slice(11, 16) : '記録中');
     const dur = (l) => { const e = l.ended_at ? new Date(l.ended_at) : new Date(); const m = Math.max(0, Math.round((e - new Date(l.started_at)) / 60000)); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
-    body = `<div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-logadd>+ 記録を足す</button><span class="hint">記録は、前に出ている窓から自動でつきます。まちがっていたら直す・消すができます</span></div></div>` +
-      (logs.length ? Object.entries(byDay).map(([d, ls]) => `<div class="sec"><div class="sh">${esc(d.slice(5).replace('-', '/'))}</div>${ls.map((l) => `<div class="log"><span class="tm">${hm(l.started_at)}〜${hm(l.ended_at)}</span><span>${dur(l)}${l.note ? ` <span class="cm">${esc(l.note)}</span>` : ''}${l.edited ? ' <span class="cm">(手で直した)</span>' : ''}</span><span><button class="link" data-logedit="${l.id}">直す</button></span></div>`).join('')}</div>`).join('')
+    // 記録にくっついたコミットはその記録の下に、くっつかなかったものは「その時刻にしたこと」の点として並べる(F7)
+    const onLog = {};
+    const rows = logs.map((l) => ({ at: l.started_at, l }));
+    commits.forEach((m) => { if (m.work_log_id && logs.some((l) => l.id === m.work_log_id)) (onLog[m.work_log_id] ||= []).push(m); else rows.push({ at: m.committed_at, m }); });
+    rows.sort((a, b) => (a.at < b.at ? 1 : -1));
+    const byDay = {};
+    rows.forEach((r) => { (byDay[r.at.slice(0, 10)] ||= []).push(r); });
+    const cm = (m) => `<div class="commit"><span class="tm">${hm(m.committed_at)}</span><span class="cmsg">${IC_COMMIT}${esc(m.message)}</span><span><button class="link danger" data-cmdel="${m.id}">消す</button></span></div>`;
+    const logRow = (l) => `<div class="log"><span class="tm">${hm(l.started_at)}〜${hm(l.ended_at)}</span><span>${dur(l)}${l.note ? ` <span class="cm">${esc(l.note)}</span>` : ''}${l.edited ? ' <span class="cm">(手で直した)</span>' : ''}</span><span><button class="link" data-logedit="${l.id}">直す</button></span></div>${(onLog[l.id] || []).sort((a, b) => (a.committed_at < b.committed_at ? -1 : 1)).map((m) => cm(m).replace('class="commit"', 'class="commit on"')).join('')}`;
+    body = `<div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-logadd>+ 記録を足す</button><span class="hint">記録は、前に出ている窓から自動でつきます。${c.repo_path ? 'git のコミットも10分ごとに入ります。' : ''}まちがっていたら直す・消すができます</span></div></div>` +
+      (rows.length ? Object.entries(byDay).map(([d, rs]) => `<div class="sec"><div class="sh">${esc(d.slice(5).replace('-', '/'))}</div>${rs.map((r) => (r.l ? logRow(r.l) : cm(r.m))).join('')}</div>`).join('')
         : emptyState(ILL.desk, 'まだ記録はありません', 'この授業・会社・開発の窓を開いていると、自動で記録がたまります。'));
   } else if (S.ctab === 'link') {
     const links = await api('GET', `/containers/${S.cont}/links`);
@@ -182,12 +189,20 @@ async function insideView() {
       <div class="field"><span>種類</span><select id="ckind">${(S.kinds || []).map((k) => `<option value="${k.id}" ${k.id === c.kind_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></div>
       ${isJob(c) ? `<div class="field"><span>会社のメールアドレスの @ から後ろ</span><input id="cdom" value="${esc(c.company_domain || '')}" placeholder="example.co.jp(なくてもよい)"></div>
       <div class="hint">ここから届いたメールと、件名・本文に「${esc(c.name)}」が入ったメールを、この会社の連絡にします</div>` : ''}
+      <div class="field"><span>リポジトリの場所</span><input id="crepo" value="${esc(c.repo_path || '')}" placeholder="C:\\Users\\…\\workbench(なくてもよい)"></div>
+      <div class="field"><span>その中のフォルダ</span><input id="crsub" value="${esc(c.repo_subdir || '')}" placeholder="products/fx-practice(1つのリポジトリにアプリがいくつもあるとき)"></div>
+      <div class="hint">入れると、git のコミットを10分ごとに読んで記録に並べます(読むだけです)。中のフォルダを入れると、そのフォルダを変えたコミットだけを読みます</div>
+      ${c.repo_path ? `<div class="field"><span>説明の一言</span><input id="cdesc" value="${esc(c.own_description || '')}" placeholder="${esc((c.dev && c.dev.readme) || 'README がないときに、何を作っているかを一言')}"></div>
+      <div class="hint">入れると、README の説明のかわりにこちらを出します</div>
+      ${c.dev && c.dev.has_spec ? '' : `<div class="field"><span>開発の状態</span><select id="cstate"><option value="">選ばない</option>${c.dev_states.map((s) => `<option ${s === c.dev_state ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+      <div class="hint">spec-excel の工程(docs/spec-excel-status.md)がないときに出します</div>`}` : ''}
       <div class="rowb"><button class="btn pri" data-csave>保存</button></div></div>
       <div class="sec"><div class="rowb"><button class="btn" data-cend>終了にする</button><span class="hint">一覧とトップから見えなくなります。中身は残り、あとで戻せます</span></div>
       <div class="rowb"><button class="btn danger" data-cdel ${c.deletable ? '' : 'disabled'}>消す</button><span class="hint">${c.deletable ? '中身が空なので消せます' : '中身があるので消せません。かわりに「終了にする」を使ってください'}</span></div></div>`;
   }
   return `<div class="chead"><button class="back" data-go="cont">‹ 授業・会社・開発</button>
     <div class="t">${esc(c.name)}${kindLabel(kindName, color)}</div>
+    ${c.dev ? `<div class="dv">${c.dev.description ? `<span class="ds">${esc(c.dev.description)}</span>` : '<span class="ds none">説明はまだありません(設定で一言書けます)</span>'}${c.dev.stage || c.dev.state ? `<span class="st">${esc(c.dev.stage || c.dev.state)}</span>` : ''}</div>` : ''}
     <div class="m"><span>${prog}</span><span>今週 ${esc(c.week_label)}/全部で ${esc(c.total_label)}</span><span>残り ${c.left}件</span></div></div>
     <div class="tabs">${tabs.map(([k, n]) => `<button class="${S.ctab === k ? 'on' : ''}" data-ctab="${k}">${n}</button>`).join('')}</div>
     <div class="col">${body}</div>`;
@@ -251,7 +266,8 @@ async function setView() {
 }
 
 
-const IC_LINK = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5 9.5 6.5M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/></svg>';
+const IC_COMMIT = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/></svg>';
+const IC_LINK ='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5 9.5 6.5M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/></svg>';
 const IC_FOLDER = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5h4l1.2 1.5H14v6.5H2z"/></svg>';
 function linkBtn(l, sub) {
   const web = /^https?:\/\//.test(l.target);
@@ -543,7 +559,15 @@ document.addEventListener('click', async (e) => {
       if (next) toast(`「${t ? t.name : 'タスク'}」を完了にしました`, () => api('PATCH', `/tasks/${d.done}`, { done: false }));
       return;
     }
-    if (d.csave !== undefined) { await api('PATCH', `/containers/${S.cont}`, { name: $('#cname').value, kind_id: +$('#ckind').value, ...($('#cdom') ? { company_domain: $('#cdom').value } : {}) }); toast('保存しました'); render(); return; }
+    if (d.csave !== undefined) {
+      await api('PATCH', `/containers/${S.cont}`, { name: $('#cname').value, kind_id: +$('#ckind').value, ...($('#cdom') ? { company_domain: $('#cdom').value } : {}),
+        repo_path: $('#crepo').value, repo_subdir: $('#crsub').value, ...($('#cdesc') ? { own_description: $('#cdesc').value } : {}), ...($('#cstate') ? { dev_state: $('#cstate').value } : {}) });
+      toast('保存しました'); render(); return;
+    }
+    if (d.cmdel) {
+      if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに消す(戻ってきません)'; return; }
+      await api('DELETE', `/commits/${d.cmdel}`); toast('消しました'); render(); return;
+    }
     if (d.cend !== undefined) { await api('PATCH', `/containers/${S.cont}`, { ended: true }); toast(`「${S.c.name}」を終了にしました`, () => api('PATCH', `/containers/${S.cont}`, { ended: false })); go('cont'); return; }
     if (d.cdel !== undefined) {
       if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに消す'; return; }

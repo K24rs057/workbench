@@ -3,6 +3,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 import containers
 import db
+import gitlog
 import tasks
 from containers import UserError
 
@@ -83,9 +84,11 @@ def containers_get(cid):
             **containers.summary(c, row),
             kind=dict(kind) if kind else None,
             tasks=tasks.list_for(c, cid),
+            dev=gitlog.dev_info(row),
+            dev_states=list(gitlog.DEV_STATES),
             deletable=not any(
                 c.execute(f"SELECT 1 FROM {t} WHERE container_id = ? LIMIT 1", (cid,)).fetchone()
-                for t in ("tasks", "work_logs", "links")
+                for t in ("tasks", "work_logs", "links", "commits")
             ),
         )
 

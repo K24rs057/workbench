@@ -187,6 +187,16 @@ CREATE TABLE IF NOT EXISTS event_extras (
     synced_date TEXT,
     synced_summary TEXT
 );
+CREATE TABLE IF NOT EXISTS commits (
+    id INTEGER PRIMARY KEY,
+    container_id INTEGER NOT NULL REFERENCES containers(id),
+    work_log_id INTEGER,
+    hash TEXT NOT NULL,
+    message TEXT NOT NULL,
+    committed_at TEXT NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(container_id, hash)
+);
 CREATE TABLE IF NOT EXISTS agent_messages (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,

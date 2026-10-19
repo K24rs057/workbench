@@ -84,7 +84,26 @@ def work_update(lid):
 @bp.delete("/work-logs/<int:lid>")
 def work_delete(lid):
     with con() as c:
+        c.execute("UPDATE commits SET work_log_id = NULL WHERE work_log_id = ?", (lid,))  # くっついていたコミットは点に戻す
         c.execute("DELETE FROM work_logs WHERE id = ?", (lid,))
+        return jsonify(ok=True)
+
+
+@bp.get("/containers/<int:cid>/commits")
+def commits_list(cid):
+    """git から入ったコミット(F7)。記録の画面で、作業記録と日付ごとに混ぜて出す。"""
+    with con() as c:
+        containers.get_row(c, cid)
+        rows = c.execute("SELECT id, work_log_id, hash, message, committed_at FROM commits WHERE container_id = ? AND hidden = 0 "
+                         "ORDER BY committed_at DESC LIMIT 300", (cid,)).fetchall()
+        return jsonify([dict(r) for r in rows])
+
+
+@bp.delete("/commits/<int:mid>")
+def commits_delete(mid):
+    """消したコミットは、次の取り込みで戻さない(S5-4)。"""
+    with con() as c:
+        c.execute("UPDATE commits SET hidden = 1 WHERE id = ?", (mid,))
         return jsonify(ok=True)
 
 

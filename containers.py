@@ -91,6 +91,26 @@ def update_container(con, cid, **fields):
         con.execute("UPDATE containers SET company_domain = ? WHERE id = ?", (d, cid))
     if "links_always_top" in fields:
         con.execute("UPDATE containers SET links_always_top = ? WHERE id = ?", (1 if fields["links_always_top"] else 0, cid))
+    if "repo_path" in fields:  # リポジトリの場所と、その中のフォルダ(F7)。空にすると登録をやめる
+        import gitlog
+        path = (fields["repo_path"] or "").strip()
+        if path:
+            try:
+                path, sub = gitlog.check_repo(path, fields.get("repo_subdir"))
+            except ValueError as e:
+                raise UserError(str(e))
+        else:
+            path, sub = None, None
+        con.execute("UPDATE containers SET repo_path = ?, repo_subdir = ? WHERE id = ?", (path, sub, cid))
+        con.execute("DELETE FROM settings WHERE key = 'git_read_at'")  # 次の1分で読む
+    if "own_description" in fields:  # 開発の説明の自分の一言(F15)
+        con.execute("UPDATE containers SET own_description = ? WHERE id = ?", ((fields["own_description"] or "").strip() or None, cid))
+    if "dev_state" in fields:
+        import gitlog
+        st = fields["dev_state"] or None
+        if st and st not in gitlog.DEV_STATES:
+            raise UserError("状態は、アイデア・作成中・動いている・休止 から選んでください")
+        con.execute("UPDATE containers SET dev_state = ? WHERE id = ?", (st, cid))
 
 
 def delete_container(con, cid):
@@ -99,7 +119,7 @@ def delete_container(con, cid):
         raise UserError("未分類は消せません")
     used = sum(
         con.execute(f"SELECT COUNT(*) FROM {t} WHERE container_id = ?", (cid,)).fetchone()[0]
-        for t in ("tasks", "work_logs", "links")
+        for t in ("tasks", "work_logs", "links", "commits")
     )
     if used:
         raise UserError("中身(タスク・作業記録・リンク)があるので消せません。かわりに「終了にする」を使ってください")
@@ -165,7 +185,8 @@ def summary(con, c, today=None):
     return {
         "id": c["id"], "name": c["name"], "kind_id": c["kind_id"], "is_unsorted": bool(c["is_unsorted"]),
         "ended": bool(c["ended"]), "links_always_top": bool(c["links_always_top"]),
-        "company_domain": c["company_domain"],
+        "company_domain": c["company_domain"], "repo_path": c["repo_path"], "repo_subdir": c["repo_subdir"],
+        "own_description": c["own_description"], "dev_state": c["dev_state"],
         "next": nxt, "left": len(open_tasks), "done": done, "total": len(tasks),
         "progress": progress(done, len(tasks)),
         "week_minutes": week, "week_label": hours_label(week),

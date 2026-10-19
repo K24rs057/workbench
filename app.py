@@ -93,6 +93,7 @@ def start_worklog(db_path):
     import time
 
     import gcal
+    import gitlog
     import gmail
     import mails
     import notify
@@ -127,6 +128,11 @@ def start_worklog(db_path):
                     gcal.refresh(con)
             except Exception as e:
                 _log_error(db_path, "Google カレンダー", e)
+            try:  # git は起動時と10分ごと。読むだけ(F7)
+                with db.session(db_path) as con:
+                    gitlog.refresh(con)
+            except Exception as e:
+                _log_error(db_path, "git の取り込み", e)
             time.sleep(60)
 
     threading.Thread(target=loop, daemon=True, name="worklog").start()
