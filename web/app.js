@@ -88,21 +88,22 @@ function side() {
 }
 
 function taskRow(t, label) {
-  const name = t.open_target
-    ? `<a class="tlink" href="${esc(t.open_target)}" target="_blank" rel="noopener" title="${esc(t.open_label)}を開く">${esc(t.name)}</a><span class="to">${esc(t.open_label)}</span>`
-    : esc(t.name);
+  const web = t.open_target && /^https?:\/\//.test(t.open_target);
+  const name = !t.open_target ? esc(t.name)
+    : web ? `<a class="tlink" href="${esc(t.open_target)}" target="_blank" rel="noopener" title="${esc(t.open_label)}を開く">${esc(t.name)}</a><span class="to">${esc(t.open_label)}</span>`
+    : `<button class="tlink" data-topen="${t.id}" title="${esc(t.open_label)}を開く">${esc(t.name)}</button><span class="to">${esc(t.open_label)}</span>`;
+  const pick = t.unsorted ? '<button class="mk mk-pick" data-sort>どれのタスクか選んで</button>' : '';
   const rep = t.repeat_weekday !== null && t.repeat_weekday !== undefined ? `<span class="mk mk-rep">毎週${WEEK[(t.repeat_weekday + 1) % 7]}</span>` : '';
   const late = t.due_date && !t.done && t.due_date < isoToday();
   return `<div class="task ${label ? 'withLab' : ''} ${t.done ? 'done' : ''}">
     <button class="ck" data-done="${t.id}" aria-label="${t.done ? '完了を外す' : '完了にする'}"></button>${label || ''}
-    <span class="nm">${name}${rep}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
+    <span class="nm">${name}${rep}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
     <span class="due ${late ? 'late' : ''}">${late ? '遅れ ' : ''}${esc(dueLabel(t))}</span></div>`;
 }
 
 // ---------- 画面 ----------
 const VIEWS = {
-  top: () => bar('トップ', `<span class="date">${today()}</span>`) +
-    `<div class="col">${emptyState(ILL.desk, 'トップはこれから作ります', '次の区切りで、今日と今週のやることが締切の順に並びます。今は「授業・会社・開発」の画面で、授業や会社とタスクを足せます。')}</div>`,
+  top: topView,
   sched: () => bar('予定') +
     `<div class="col">${emptyState(ILL.cal, 'あとでつながります', 'Google カレンダーとつなぐのは作る順番の③です。それまでは、トップの「今日の時間」に時間割の授業が出ます。')}</div>`,
   mail: () => bar('連絡') +
@@ -145,7 +146,11 @@ async function insideView() {
   } else if (S.ctab === 'log') {
     body = emptyState(ILL.desk, '作業記録は区切り4で作ります', 'パソコンで前に出ている画面から、自動で記録がたまるようになります。');
   } else if (S.ctab === 'link') {
-    body = emptyState(ILL.desk, 'リンクは区切り3で作ります', '学習サイトや PC のフォルダを登録すると、トップの「今日のリンク」とタスクの名前から開けるようになります。');
+    const links = await api('GET', `/containers/${S.cont}/links`);
+    body = `<div class="sec"><div class="sh">リンク</div>${links.length ? links.map((l) => `<div class="task"><span>${IC_LINK}</span><span class="nm">${linkBtn(l)}<span class="to">${esc(l.target)}</span></span><button class="link danger" data-ldel="${l.id}">消す</button></div>`).join('') : '<div class="hint">まだありません。学習サイトや、PC のフォルダ・ファイルを足せます。</div>'}
+      <div class="rowb"><button class="btn" data-ladd>+ リンクを足す</button></div></div>
+      <div class="sec"><span class="tg"><button class="sw ${c.links_always_top ? 'on' : ''}" data-lalways aria-label="いつもトップに出す"></button>このリンクを、毎日トップの「今日のリンク」に出す</span>
+      <div class="hint" style="margin-top:6px">授業のリンクは、時間割でその授業がある日に自動で出ます。それ以外の日も出したいときにオンにします。</div></div>`;
   } else {
     body = c.is_unsorted ? '<div class="sec hint">未分類は、名前や種類を変えたり、終了にしたりできません。</div>' : `<div class="sec">
       <div class="field"><span>名前</span><input id="cname" value="${esc(c.name)}"></div>
@@ -173,6 +178,51 @@ async function setView() {
   return bar('設定') + `<div class="col">
     <div class="sset"><h3>種類</h3>${rows}<div class="rowb"><button class="btn" data-kadd>+ 種類を足す</button><span class="hint">灰色は未分類だけの色なので選べません。中に授業・会社・開発がある種類は消せません</span></div></div>
     <div class="sset"><h3>これから足す設定</h3><div class="hint">大学(学期の終わりの日)・作業記録(覚えた画面の名前)・本体の様子・モッチは、区切りごとにここに増えます。</div></div></div>`;
+}
+
+
+const IC_LINK = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5 9.5 6.5M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/></svg>';
+const IC_FOLDER = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5h4l1.2 1.5H14v6.5H2z"/></svg>';
+function linkBtn(l, sub) {
+  const web = /^https?:\/\//.test(l.target);
+  const inner = `${web ? IC_LINK : IC_FOLDER}${esc(l.name)}${sub ? `<em>${esc(sub)}</em>` : ''}`;
+  return web ? `<a class="lk" href="${esc(l.target)}" target="_blank" rel="noopener">${inner}</a>` : `<button class="lk" data-lopen="${l.id}">${inner}</button>`;
+}
+function timeRows(list) {
+  return list.length ? list.map((c) => `<div class="tl"><span>${esc(c.start)}</span><span>${kindLabel(c.name, KIND_UNI)} 授業</span></div>`).join('') : '<div class="hint">なし</div>';
+}
+let KIND_UNI = '#17806a';
+async function topView() {
+  const t = await api('GET', '/top');
+  S.top = t;
+  S.c = { tasks: [...t.overdue, ...t.today_tasks, ...t.week, ...t.nodue] };
+  KIND_UNI = (S.kinds || []).find((k) => k.builtin && k.name)?.color || KIND_UNI;
+  const lab = (x) => kindLabel(x.label.name, x.label.color);
+  const g = t.gauge;
+  const pc = g.overall === null ? 0 : g.overall;
+  const gline = (n, p, color) => `<div class="gauge"><span>${esc(n)}</span><div class="track"><i style="width:${p ?? 0}%;${color ? `background:${color}` : ''}"></i></div><span>${p === null ? 'タスクなし' : p + '%'}</span></div>`;
+  const gauge = `<div class="sec"><button class="gauge gbtn" data-gauge aria-expanded="${S.gOpen ? 'true' : 'false'}" title="押すと、種類ごと・今日と今週にタスクがある授業・会社・開発の進み具合が開きます"><span>全体の進み具合 <span class="gar">${S.gOpen ? '▾' : '▸'}</span></span><div class="track"><i style="width:${pc}%"></i></div><span>${g.overall === null ? 'タスクなし' : pc + '%'}</span></button>
+    ${S.gOpen ? `<div class="gdetail"><div class="gsub">種類ごと</div>${g.kinds.map((k) => gline(k.name, k.progress, k.color)).join('')}${g.items.length ? `<div class="gsub">今日・今週にタスクがある授業・会社・開発</div>${g.items.map((i) => gline(i.name, i.progress)).join('')}` : ''}</div>` : ''}</div>`;
+  const links = t.links.length ? `<div class="sec"><div class="sh">今日のリンク</div><div class="links">${t.links.map((l) => linkBtn(l, l.container)).join('')}</div></div>` : '';
+  const notices = t.notices.length ? `<div class="sec"><div class="sh">お知らせ</div><div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
+  const over = t.overdue.length ? `<div class="sec overdue"><div class="sh">期限切れ</div>${t.overdue.map((x) => taskRow(x, lab(x))).join('')}</div>` : '';
+  const sec = (title, list, empty) => `<div class="sec"><div class="sh">${title} <span class="n">${list.length}</span></div>${list.length ? list.map((x) => taskRow(x, lab(x))).join('') : `<div class="hint">${empty}</div>`}</div>`;
+  const nothing = !S.c.tasks.length;
+  return bar('トップ', `<span class="date">${today()}</span>`) +
+    `<div class="tbody"><div class="col">${gauge}${links}${notices}${over}
+      <div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-addtop>+ タスクを足す</button><span class="hint">1行で打って足す欄(1行入力)は、あとで作ります</span></div></div>
+      ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '「+ タスクを足す」か、「授業・会社・開発」の画面から足せます。') : sec('今日', t.today_tasks, '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
+      <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${timeRows(t.classes_today)}</div><div class="sec"><div class="sh">明日の時間</div>${timeRows(t.classes_tomorrow)}</div>
+      <div class="hint" style="padding:10px 0">予定(Google カレンダー)は、作る順番の③でここに混ざります。</div></aside></div>`;
+}
+async function addTaskFromTop() {
+  const ov = await api('GET', '/containers');
+  const opts = ov.kinds.flatMap((k) => k.items.map((i) => `<option value="${i.id}">${esc(k.name)}:${esc(i.name)}</option>`)).join('');
+  taskForm(null, '');
+  const f = document.createElement('div');
+  f.className = 'field';
+  f.innerHTML = `<span>どれのタスク</span><select id="tcid"><option value="${ov.unsorted_id}">未分類(あとで選ぶ)</option>${opts}</select>`;
+  $('#layer .modal h3').after(f);
 }
 
 // ---------- 小窓の中身 ----------
@@ -223,6 +273,20 @@ document.addEventListener('click', async (e) => {
   try {
     if (d.close !== undefined && (e.target === el || el.tagName === 'BUTTON')) { closeModal(); return; }
     if (d.go) { go(d.go); return; }
+    if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }
+    if (d.addtop !== undefined) { await addTaskFromTop(); return; }
+    if (d.lopen) { await api('POST', `/links/${d.lopen}/open`); toast('開きました'); return; }
+    if (d.topen) { await api('POST', `/tasks/${d.topen}/open`); toast('開きました'); return; }
+    if (d.ladd !== undefined) {
+      modal(`<h3>リンクを足す</h3><div class="field"><span>名前</span><input id="lname" placeholder="学習サイト"></div>
+        <div class="field"><span>URL か PC の場所</span><input id="ltarget" placeholder="https://… または C:\\Users\\…"></div>
+        <div class="hint">PC のフォルダやファイル(Word の原稿など)の場所も入れられます。押すと、その場所が開きます。</div>
+        <div class="acts"><button class="btn" data-close>やめる</button><button class="btn pri" data-lsubmit>足す</button></div>`);
+      return;
+    }
+    if (d.lsubmit !== undefined) { await api('POST', '/links', { container_id: S.cont, name: $('#lname').value, target: $('#ltarget').value }); closeModal(); render(); return; }
+    if (d.ldel) { await api('DELETE', `/links/${d.ldel}`); toast('消しました'); render(); return; }
+    if (d.lalways !== undefined) { await api('PATCH', `/containers/${S.cont}`, { links_always_top: !el.classList.contains('on') }); render(); return; }
     if (d.open) { S.cont = +d.open; S.ctab = 'task'; go('inside'); return; }
     if (d.ctab) { S.ctab = d.ctab; render(); return; }
     if (d.ended !== undefined) { S.endedOpen = !S.endedOpen; render(); return; }
@@ -245,7 +309,7 @@ document.addEventListener('click', async (e) => {
     if (d.tsave !== undefined) {
       const data = { name: $('#tname').value, due_date: $('#tdate').value, due_time: $('#ttime').value.trim(), repeat_weekday: $('#trep').value, open_url: $('#turl').value };
       if (d.tsave) await api('PATCH', `/tasks/${d.tsave}`, data);
-      else await api('POST', '/tasks', { ...data, container_id: +d.cid });
+      else await api('POST', '/tasks', { ...data, container_id: +($('#tcid') ? $('#tcid').value : d.cid) });
       closeModal(); toast(d.tsave ? '直しました' : `「${data.name}」を足しました`); render(); return;
     }
     if (d.tdel) {

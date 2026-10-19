@@ -125,3 +125,65 @@ def unsorted_list():
             "SELECT c.id, c.name, k.name AS kind FROM containers c JOIN kinds k ON k.id = c.kind_id WHERE c.ended = 0 ORDER BY k.id, c.name"
         ).fetchall()
         return jsonify(tasks=[tasks.to_json(c, t) for t in rows], options=[dict(o) for o in opts])
+
+
+# ---------- トップ(A1) ----------
+@bp.get("/top")
+def top_view():
+    import top
+    with con() as c:
+        return jsonify(top.build(c))
+
+
+# ---------- リンク(A15・A16) ----------
+@bp.get("/containers/<int:cid>/links")
+def links_list(cid):
+    with con() as c:
+        containers.get_row(c, cid)
+        return jsonify([dict(r) for r in c.execute("SELECT * FROM links WHERE container_id = ? ORDER BY id", (cid,))])
+
+
+@bp.post("/links")
+def links_add():
+    b = body()
+    name, target = (b.get("name") or "").strip(), (b.get("target") or "").strip()
+    if not name or not target:
+        raise UserError("名前と、URL または PC のフォルダ・ファイルの場所を入れてください")
+    with con() as c:
+        containers.get_row(c, b.get("container_id"))
+        return jsonify(id=c.execute("INSERT INTO links(container_id, name, target) VALUES (?, ?, ?)", (b["container_id"], name, target)).lastrowid), 201
+
+
+@bp.delete("/links/<int:lid>")
+def links_delete(lid):
+    with con() as c:
+        c.execute("DELETE FROM links WHERE id = ?", (lid,))
+        return jsonify(ok=True)
+
+
+def open_local(target):
+    """PC のフォルダ・ファイル・アプリを開く。画面から送られた文字ではなく、保存してある行き先だけを開く。"""
+    import os
+    if not os.path.exists(target):
+        raise UserError(f"見つかりませんでした:{target}")
+    os.startfile(target)  # noqa: S606 Windows でだけ動く
+
+
+@bp.post("/links/<int:lid>/open")
+def links_open(lid):
+    with con() as c:
+        row = c.execute("SELECT target FROM links WHERE id = ?", (lid,)).fetchone()
+        if not row:
+            raise UserError("そのリンクはありません")
+        open_local(row["target"])
+        return jsonify(ok=True)
+
+
+@bp.post("/tasks/<int:tid>/open")
+def tasks_open(tid):
+    with con() as c:
+        target, _ = tasks.open_target(c, tasks.get(c, tid))
+        if not target:
+            raise UserError("開くページがありません")
+        open_local(target)
+        return jsonify(ok=True)

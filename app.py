@@ -55,6 +55,9 @@ def main():
     db_path = Path(args.data_dir) / "dandori.db" if args.data_dir else None
     app = create_app(db_path)
     backup.run(db_path)
+    import timetable
+    with db.session(db_path) as con:
+        timetable.refresh(con, force=True)
     app.run(host=HOST, port=args.port, threaded=True, use_reloader=False)
 
 
