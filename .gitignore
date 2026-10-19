@@ -24,3 +24,6 @@ __pycache__/
 
 # Excel の一時ファイル
 ~$*.xlsx
+
+# テストの集計
+.coverage

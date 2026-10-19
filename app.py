@@ -92,6 +92,16 @@ def start_worklog(db_path):
     import threading
     import time
 
+    def loop():
+        while True:
+            run_jobs_once(db_path)
+            time.sleep(60)
+
+    threading.Thread(target=loop, daemon=True, name="worklog").start()
+
+
+def run_jobs_once(db_path):
+    """裏の仕事を1回分。どれかが失敗しても、ほかは続ける(本体の様子に残す)。"""
     import autodone
     import gcal
     import gitlog
@@ -101,49 +111,47 @@ def start_worklog(db_path):
     import outlook
     import worklog
 
-    def loop():
-        while True:
-            try:
-                with db.session(db_path) as con:
-                    worklog.tick(con, worklog.foreground())
-                with db.session(db_path) as con:
-                    notify.check(con)
-            except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
-                _log_error(db_path, "作業記録", e)
-            try:  # メールは10分ごと(outlook.refresh の中で間を数える)
-                with db.session(db_path) as con:
-                    outlook.refresh(con)
-                with db.session(db_path) as con:
-                    mails.run_claude_jobs(con)
-            except Exception as e:
-                _log_error(db_path, "Outlook", e)
-            try:  # Gmail も10分ごと。許可がまだなら何もしない(F11・F20)
-                with db.session(db_path) as con:
-                    gmail.refresh(con)
-                with db.session(db_path) as con:
-                    mails.run_claude_jobs(con)
-            except Exception as e:
-                _log_error(db_path, "Gmail", e)
-            try:  # カレンダーは10分ごと。タスクが変わったときは次の1分で直す(F12・F13)
-                with db.session(db_path) as con:
-                    gcal.refresh(con)
-            except Exception as e:
-                _log_error(db_path, "Google カレンダー", e)
-            try:  # git は起動時と10分ごと。読むだけ(F7)
-                with db.session(db_path) as con:
-                    gitlog.refresh(con)
-            except Exception as e:
-                _log_error(db_path, "git の取り込み", e)
-            try:  # 自動で完了の合図を見分ける。「終わっていそう」は1日1回(F18)
-                with db.session(db_path) as con:
-                    autodone.run_jobs(con)
-                with db.session(db_path) as con:
-                    autodone.run_maybe(con)
-            except Exception as e:
-                _log_error(db_path, "Claude", e)
-            time.sleep(60)
-
-    threading.Thread(target=loop, daemon=True, name="worklog").start()
+    try:
+        with db.session(db_path) as con:
+            worklog.tick(con, worklog.foreground())
+    except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
+        _log_error(db_path, "作業記録", e)
+    try:  # 作業記録が失敗しても、通知は出す
+        with db.session(db_path) as con:
+            notify.check(con)
+    except Exception as e:
+        _log_error(db_path, "通知", e)
+    try:  # メールは10分ごと(outlook.refresh の中で間を数える)
+        with db.session(db_path) as con:
+            outlook.refresh(con)
+        with db.session(db_path) as con:
+            mails.run_claude_jobs(con)
+    except Exception as e:
+        _log_error(db_path, "Outlook", e)
+    try:  # Gmail も10分ごと。許可がまだなら何もしない(F11・F20)
+        with db.session(db_path) as con:
+            gmail.refresh(con)
+        with db.session(db_path) as con:
+            mails.run_claude_jobs(con)
+    except Exception as e:
+        _log_error(db_path, "Gmail", e)
+    try:  # カレンダーは10分ごと。タスクが変わったときは次の1分で直す(F12・F13)
+        with db.session(db_path) as con:
+            gcal.refresh(con)
+    except Exception as e:
+        _log_error(db_path, "Google カレンダー", e)
+    try:  # git は起動時と10分ごと。読むだけ(F7)
+        with db.session(db_path) as con:
+            gitlog.refresh(con)
+    except Exception as e:
+        _log_error(db_path, "git の取り込み", e)
+    try:  # 自動で完了の合図を見分ける。「終わっていそう」は1日1回(F18)
+        with db.session(db_path) as con:
+            autodone.run_jobs(con)
+        with db.session(db_path) as con:
+            autodone.run_maybe(con)
+    except Exception as e:
+        _log_error(db_path, "Claude", e)
 
 
 def _log_error(db_path, job, e):

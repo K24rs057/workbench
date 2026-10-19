@@ -25,6 +25,14 @@ def main(argv=None):
     sub.add_parser("remove-autostart")
     s = sub.add_parser("google-key"); s.add_argument("path")
     a = p.parse_args(argv)
+    try:
+        return _run(a)
+    except (ValueError, OSError, RuntimeError) as e:  # ファイルがない・日付の形がちがう・登録できないなど
+        print(f"できませんでした:{e}", file=sys.stderr)
+        return 1
+
+
+def _run(a):
     if a.cmd == "google-key":
         import gmail
         gmail.import_client_json(a.path)
@@ -39,7 +47,10 @@ def main(argv=None):
     db.init()
     with db.session() as con:
         if a.cmd == "term-end":
-            date.fromisoformat(a.day)
+            try:
+                date.fromisoformat(a.day)
+            except ValueError:
+                raise ValueError(f"日付は 2027-07-31 の形で入れてください({a.day})")
             con.execute("INSERT INTO settings(key, value) VALUES ('term_end', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (a.day,))
             print(f"学期の終わりの日を {a.day} にしました")
         elif a.cmd == "end-container":

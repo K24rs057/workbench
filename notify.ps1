@@ -4,6 +4,7 @@
 param([string]$File)
 
 $data = Get-Content -Raw -Encoding UTF8 -Path $File | ConvertFrom-Json
+Remove-Item -LiteralPath $File -ErrorAction SilentlyContinue  # 読んだら一時ファイルは消す
 $title = [System.Security.SecurityElement]::Escape($data.title)
 $message = [System.Security.SecurityElement]::Escape($data.message)
 

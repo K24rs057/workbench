@@ -30,14 +30,17 @@ def read_inbox(since):
                 continue
             if received < since:
                 break
-            addr = m.SenderEmailAddress or ""
-            if m.SenderEmailType == "EX":
-                try:
-                    addr = m.Sender.GetExchangeUser().PrimarySmtpAddress or addr
-                except Exception:
-                    pass
-            out.append({"source": "Outlook", "external_id": "outlook:" + m.EntryID, "subject": m.Subject or "",
-                        "sender": addr, "received_at": received, "body": m.Body or ""})
+            try:  # 配信できなかったお知らせ(差出人がない)など、メールの形でないものは飛ばす
+                addr = m.SenderEmailAddress or ""
+                if m.SenderEmailType == "EX":
+                    try:
+                        addr = m.Sender.GetExchangeUser().PrimarySmtpAddress or addr
+                    except Exception:
+                        pass
+                out.append({"source": "Outlook", "external_id": "outlook:" + m.EntryID, "subject": m.Subject or "",
+                            "sender": addr, "received_at": received, "body": m.Body or ""})
+            except Exception:
+                continue
         return out
     finally:
         pythoncom.CoUninitialize()
