@@ -122,6 +122,7 @@
 .commit.on{padding-left:18px;grid-template-columns:92px minmax(0,1fr) auto}
 .commit .cmsg{display:flex;gap:6px;align-items:center;min-width:0;overflow-wrap:anywhere;color:var(--ink)}
 .commit .cmsg svg{flex:none;color:var(--sub)}
+@media (max-width:600px){.commit{grid-template-columns:42px minmax(0,1fr) auto;gap:8px}.commit.on{grid-template-columns:30px minmax(0,1fr) auto;padding-left:12px}}
 .chead .dv{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;font-size:12.5px}
 .chead .dv .ds{min-width:0;overflow-wrap:anywhere}
 .chead .dv .ds.none{color:var(--sub)}
