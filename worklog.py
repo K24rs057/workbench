@@ -25,7 +25,9 @@ SKIP_TITLES = {"", "タスク スイッチング", "Program Manager", "スター
 
 # ---------- 窓を読む(Windows) ----------
 def foreground():
-    """(アプリ名, 窓の名前) を返す。ロック中など読めないときは None。"""
+    """(アプリ名, 窓の名前) を返す。ロック中など読めないとき(Windows 以外も)は None。"""
+    if not hasattr(ctypes, "windll"):
+        return None
     user32 = ctypes.windll.user32
     if not _desktop_is_input():
         return None

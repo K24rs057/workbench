@@ -31,8 +31,8 @@ SYSTEM = """あなたは、予定とタスクの管理アプリ「段取りさ�
 - 必ず指定の JSON の形で答える"""
 
 TOOLS = {
-    "add_tasks": "タスクを足す。args: {\"tasks\": [{\"container_id\": 番号, \"name\": 名前, \"due_date\": 日付かnull, \"due_time\": 時刻かnull}]}",
-    "update_task": "タスクを直す。args: {\"task_id\": 番号, \"name\"?, \"due_date\"?, \"due_time\"?, \"done\"?, \"container_id\"?}",
+    "add_tasks": "タスクを足す。args: {\"tasks\": [{\"container_id\": 番号, \"name\": 名前, \"due_date\": 日付かnull, \"due_time\": 時刻かnull, \"start_date\": 着手日かnull}]}",
+    "update_task": "タスクを直す。args: {\"task_id\": 番号, \"name\"?, \"due_date\"?, \"due_time\"?, \"start_date\"?, \"done\"?, \"container_id\"?}",
     "delete_task": "タスクを消す。args: {\"task_id\": 番号}",
     "set_task_link": "タスクを押したときに開くページを変える。args: {\"task_id\": 番号, \"url\": URL}",
 }
@@ -100,7 +100,7 @@ def context(con, screen, today=None):
     today = today or date.today()
     timetable.refresh(con)
     rows = con.execute(
-        """SELECT t.id, t.name, t.due_date, t.due_time, t.container_id, c.name AS container FROM tasks t
+        """SELECT t.id, t.name, t.due_date, t.due_time, t.start_date, t.container_id, c.name AS container FROM tasks t
            JOIN containers c ON c.id = t.container_id WHERE t.done = 0 AND c.ended = 0
            ORDER BY t.due_date IS NULL, t.due_date, t.due_time LIMIT 80"""
     ).fetchall()
@@ -192,10 +192,11 @@ def confirm(con, mid):
     if tool == "add_tasks":
         for t in args["tasks"]:
             tasks.add(con, {"container_id": t["container_id"], "name": t["name"],
-                            "due_date": t.get("due_date") or None, "due_time": t.get("due_time") or None})
+                            "due_date": t.get("due_date") or None, "due_time": t.get("due_time") or None,
+                            "start_date": t.get("start_date") or None})
         done = f"タスクを{len(args['tasks'])}つ足したよ"
     elif tool == "update_task":
-        fields = {k: v for k, v in args.items() if k in ("name", "due_date", "due_time", "done", "container_id")}
+        fields = {k: v for k, v in args.items() if k in ("name", "due_date", "due_time", "start_date", "done", "container_id")}
         tasks.update(con, args["task_id"], fields)
         done = "直したよ"
     elif tool == "delete_task":

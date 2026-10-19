@@ -22,8 +22,11 @@ def _pythonw():
 
 
 def _run(args):
-    return subprocess.run(["schtasks", *args], capture_output=True, text=True, encoding="cp932", errors="replace",
-                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        return subprocess.run(["schtasks", *args], capture_output=True, text=True, encoding="cp932", errors="replace",
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except OSError as e:  # schtasks がない(Windows 以外)ときは「登録されていない」として扱う
+        return subprocess.CompletedProcess(args, 1, "", str(e))
 
 
 def install():

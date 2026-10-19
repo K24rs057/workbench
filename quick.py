@@ -121,17 +121,23 @@ def _match_container(word, choices):
     return min(hits, key=lambda c: (len(c["name"]), c["id"])) if hits else None
 
 
+def _inside_word(word, choices):
+    """1語の中に入れ物の名前(2文字以上)がそのまま入っていれば、その入れ物。いくつも当たるときは名前の長いもの。"""
+    hits = [c for c in choices if len(c["name"]) >= 2 and c["name"].lower() in word.lower()]
+    return max(hits, key=lambda c: (len(c["name"]), -c["id"])) if hits else None
+
+
 def parse_rules(text, choices, today, fixed_container=False):
     """決まった書き方で読む。{"title", "date", "time", "container_id"} を返す。"""
     text = text.strip()
     rest = text
     cid = None
     if not fixed_container:
-        # 空白を含む名前もあるので、まず名前そのものが入っているかを長い順に見る
-        for c in sorted(choices, key=lambda c: -len(c["name"])):
-            if len(c["name"]) >= 2 and c["name"].lower() in rest.lower():
-                i = rest.lower().index(c["name"].lower())
-                rest = rest[:i] + " " + rest[i + len(c["name"]):]
+        # 空白を含む名前は1語ずつに分かれてしまうので、先に名前そのもの(前後が空白か端)を長い順に探す
+        for c in sorted((c for c in choices if SEP_RE.search(c["name"])), key=lambda c: -len(c["name"])):
+            m = re.search(rf"(?:^|(?<=[\s\u3000])){re.escape(c['name'])}(?=$|[\s\u3000])", rest, re.IGNORECASE)
+            if m:
+                rest = rest[:m.start()] + " " + rest[m.end():]
                 cid = c["id"]
                 break
     d = tm = None
@@ -148,6 +154,8 @@ def parse_rules(text, choices, today, fixed_container=False):
         if cid is None and not fixed_container and (c := _match_container(w, choices)):
             cid = c["id"]
             continue
+        if cid is None and not fixed_container and (c := _inside_word(w, choices)):
+            cid = c["id"]  # 「卒論の資料を読む」:入れ物は卒論に。語はタスク名に残す
         title.append(w)
     name = " ".join(title) or text
     if tm and not d:

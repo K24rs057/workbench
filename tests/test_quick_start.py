@@ -47,6 +47,10 @@ def test_parse_rules():
     assert quick.parse_rules("情報 第10回課題 10/25 23:59", choices, WED)["container_id"] == 2  # 名前の一部
     got = quick.parse_rules("株式会社さくら 商事 ES 明日 17時", choices, WED)  # 空白を含む名前
     assert (got["container_id"], got["title"], got["date"], got["time"]) == (3, "ES", "2026-10-22", "17:00")
+    # 語の中に名前があるときは、入れ物を決めて、タスク名はそのまま残す
+    got = quick.parse_rules("金 卒論の資料を読む", choices, WED)
+    assert (got["container_id"], got["title"]) == (1, "卒論の資料を読む")
+    assert quick.parse_rules("株式会社さくら 商事の説明会", choices, WED)["container_id"] == 3  # 名前の一部「株式会社さくら」
     assert quick.parse_rules("本を読む", choices, WED) == {"title": "本を読む", "date": None, "time": None, "container_id": None}
     assert quick.parse_rules("金", choices, WED)["title"] == "金"   # 名前が残らないときは打った文字をそのまま
     assert quick.parse_rules("23:59 提出", choices, WED)["date"] == "2026-10-21"  # 時刻だけなら今日
@@ -165,3 +169,18 @@ def test_repeat_carries_start_date(db_path):
         nxt = tasks.set_done(con, tid, True)
         n = tasks.get(con, nxt)
         assert (n["due_date"], n["start_date"]) == ("2026-11-03", "2026-10-31")
+
+
+def test_mochi_can_set_start_date(db_path):
+    db.init(db_path)
+    with db.session(db_path) as con:
+        import containers
+        import tasks
+        kid = con.execute("SELECT id FROM kinds WHERE name = '開発'").fetchone()[0]
+        cid = containers.add_container(con, "卒論", kid)
+        tid = tasks.add(con, {"container_id": cid, "name": "原稿", "due_date": "2026-11-30"})
+        assert any(t["start_date"] is None for t in agent.context(con, "トップ")["open_tasks"])
+        runner = lambda s, p: {"reply": "着手日をつけるね", "action": {"tool": "update_task", "args": {"task_id": tid, "start_date": "2026-11-01"}, "label": "着手日をつける"}}
+        mid = agent.ask(con, "原稿は11/1から始める", "トップ", runner=runner)
+        agent.confirm(con, mid)
+        assert tasks.get(con, tid)["start_date"] == "2026-11-01"
