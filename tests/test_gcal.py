@@ -173,3 +173,66 @@ def test_task_change_marks_dirty(client, db_path):
     client.post("/api/tasks", json={"container_id": cid, "name": "x", "due_date": "2026-10-30"})
     with db.session(db_path) as con:
         assert con.execute("SELECT value FROM settings WHERE key = 'calendar_dirty'").fetchone()[0] == "1"
+
+
+# ---------- 区切り12 予定の画面(F19、A17〜A19) ----------
+@pytest.fixture
+def fake(monkeypatch):
+    cal = FakeCal([timed("own", "2026-10-21", "13:00", "14:00", "サークル"), timed("inv", "2026-10-21", "18:00", "19:00", "説明会", self_=False)])
+    monkeypatch.setattr(gcal, "_api", lambda: cal)
+    import gmail
+    monkeypatch.setattr(gmail, "calendar_allowed", lambda env=None: True)
+    return cal
+
+
+def test_schedule_lists_events_tasks_classes(client, db_path, fake):
+    cid = client.post("/api/containers", json={"name": "A社", "kind_id": 2}).get_json()["id"]
+    client.post("/api/tasks", json={"container_id": cid, "name": "ES", "due_date": "2026-10-21", "due_time": "23:59"})
+    d = client.get("/api/schedule?from=2026-10-19&to=2026-10-25").get_json()
+    day = next(x for x in d["days"] if x["date"] == "2026-10-21")
+    kinds = [(i["type"], i["name"]) for i in day["items"]]
+    assert kinds == [("event", "サークル"), ("event", "説明会"), ("task", "ES")]
+    inv = day["items"][1]
+    assert inv["invited"] and not inv["editable"]
+    assert len(d["days"]) == 7
+
+
+def test_add_edit_delete_event(client, db_path, fake):
+    r = client.post("/api/events", json={"name": "歯医者", "date": "2026-10-22", "start": "10:00", "end": "11:00"})
+    gid = r.get_json()["id"]
+    ev = fake.events[gid]
+    assert ev["summary"] == "歯医者" and "extendedProperties" not in ev  # 手で足した予定には目印をつけない
+    assert client.post("/api/events", json={"name": "x", "date": "2026-10-22", "start": "11:00", "end": "10:00"}).status_code == 400
+    client.patch(f"/api/events/{gid}", json={"name": "歯医者(再診)", "date": "2026-10-22", "start": "10:00", "end": "10:30"})
+    assert fake.events[gid]["summary"] == "歯医者(再診)"
+    client.delete(f"/api/events/{gid}")
+    assert gid not in fake.events
+
+
+def test_invited_event_needs_toggle(client, db_path, fake):
+    with db.session(db_path) as con:
+        gcal.refresh(con, now=NOW, api=fake, force=True)
+    r = client.patch("/api/events/inv", json={"name": "説明会", "date": "2026-10-21", "start": "18:00", "end": "20:00"})
+    assert r.status_code == 400 and "見るだけ" in r.get_json()["error"]
+    client.patch("/api/events/inv", json={"edit_allowed": True})
+    assert client.patch("/api/events/inv", json={"name": "説明会", "date": "2026-10-21", "start": "18:00", "end": "20:00"}).status_code == 200
+    assert client.delete("/api/events/inv").status_code == 400
+
+
+def test_held_force_and_drop(client, db_path, fake):
+    with db.session(db_path) as con:
+        mid = con.execute("INSERT INTO messages(source, external_id, category, subject, sender, received_at) VALUES ('Gmail', 'g9', 'アルバイト', '面接', 'a@indeedemail.com', '2026-10-18')").lastrowid
+        a = con.execute("INSERT INTO held_events(title, start_at, reason, from_message_id) VALUES ('面接', '2026-10-21T13:00', 'カレンダーがまだつながっていない', ?)", (mid,)).lastrowid
+        b = con.execute("INSERT INTO held_events(title, start_at, reason) VALUES ('補講', '2026-10-21T13:30', 'カレンダーがまだつながっていない')").lastrowid
+        gcal.refresh(con, now=NOW, api=fake, force=True)
+    assert len(client.get("/api/schedule?from=2026-10-19&to=2026-10-25").get_json()["held"]) == 2
+    client.post(f"/api/held-events/{a}/drop")
+    assert client.post(f"/api/held-events/{b}/force").get_json()["written"] is True
+    with db.session(db_path) as con:
+        assert con.execute("SELECT COUNT(*) FROM held_events").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM deleted_items WHERE what = '予定'").fetchone()[0] == 1
+
+
+def test_schedule_without_calendar_still_shows_tasks(client, db_path):
+    d = client.get("/api/schedule?from=2026-10-19&to=2026-10-20").get_json()
+    assert d["connected"] in (True, False) and len(d["days"]) == 2

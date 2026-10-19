@@ -30,6 +30,15 @@ def sample_timetable(tmp_path, monkeypatch):
     return p
 
 
+@pytest.fixture(autouse=True)
+def no_real_google(tmp_path, monkeypatch):
+    """本物の .env(Google の合鍵と通行証)を読まない。テストから本物の Gmail・カレンダーにつながないため。"""
+    import gcal
+    import gmail
+    monkeypatch.setattr(gmail, "ENV_PATH", tmp_path / ".env")
+    gcal._cache.update(at=None, items=[], error=None)
+
+
 @pytest.fixture
 def db_path(tmp_path):
     return tmp_path / "dandori.db"

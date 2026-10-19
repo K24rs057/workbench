@@ -1,0 +1,171 @@
+// 予定の画面(要件 F19、基本設計 S2)。予定の本体は Google カレンダー。ここでは見る・足す・直す・消す。
+(function () {
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const parse = (s) => new Date(s + 'T00:00');
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}(${WEEK[parse(s).getDay()]})`;
+  const GRAY = '#8a8f98';
+  const lab = (l) => (l ? kindLabel(l.name, l.color) : '');
+
+  S.sv = S.sv || 'list';
+  S.slist = S.slist || isoToday();          // 一覧の始まりの日(今日から2週間)
+  S.smonth = S.smonth || isoToday().slice(0, 7);
+
+  function range() {
+    if (S.sv === 'list') { const a = parse(S.slist); return [iso(a), iso(addDays(a, 13))]; }
+    const first = parse(S.smonth + '-01');
+    const start = addDays(first, -first.getDay());
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    return [iso(start), iso(addDays(last, 6 - last.getDay()))];
+  }
+
+  const tm = (i) => (i.type === 'task' ? `締切${i.start ? ' ' + esc(i.start) : ''}` : i.start ? `${esc(i.start)}${i.end ? '〜' + esc(i.end) : ''}` : '終日');
+
+  function row(i) {
+    if (i.type === 'task') {
+      const del = i.calendar_deleted ? ' <span class="mk mk-warn" title="Google カレンダーで消されました。もう書きません">カレンダーから消されました</span>' : '';
+      return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<span style="${i.done ? 'text-decoration:line-through;color:var(--faint)' : ''}">${esc(i.name)}${del}</span><button class="ck ${i.done ? 'on' : ''}" data-done="${i.id}" aria-label="${i.done ? '完了を外す' : '完了にする'}"></button></div>`;
+    }
+    if (i.type === 'held') {
+      const why = i.reason === '重なる予定がある' ? '重なる予定があるため書いていません' : i.reason === 'つながらなかった' ? 'つながったら書きます' : 'カレンダーに書く前です';
+      return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<span>${esc(i.name)} <button class="mk mk-rep" data-heldlist title="${why}">預かり中</button></span><span></span></div>`;
+    }
+    return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<button class="evn" data-evopen="${esc(i.id)}">${esc(i.name)}${i.invited ? ' <span class="mk mk-pick">招待</span>' : ''}${i.location ? `<span class="loc"> ${esc(i.location)}</span>` : ''}</button><span></span></div>`;
+  }
+  function classRow(c, uni) {
+    return `<div class="ev"><span class="tm">${esc(c.start)}〜${esc(c.end)}</span>${kindLabel('大学', uni)}<span>授業 ${c.count}コマ<span class="loc"> ${esc(c.names.join('・'))}</span></span><span></span></div>`;
+  }
+
+  async function schedView() {
+    const [a, b] = range();
+    const d = await api('GET', `/schedule?from=${a}&to=${b}`);
+    S.sd = d;
+    S.c = { tasks: d.days.flatMap((x) => x.items.filter((i) => i.type === 'task')) };
+    S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: x.date }])));
+    const uni = d.kinds['大学'] || '#17806a';
+    const t0 = isoToday();
+    const head = S.sv === 'list'
+      ? `<span class="date snav"><button class="link" data-snav="-14" aria-label="前の2週間">‹</button> ${md(a)}〜${md(b)} <button class="link" data-snav="14" aria-label="次の2週間">›</button></span>`
+      : `<span class="date snav"><button class="link" data-snav="-1" aria-label="前の月">‹</button> ${S.smonth.slice(0, 4)}年${+S.smonth.slice(5)}月 <button class="link" data-snav="1" aria-label="次の月">›</button></span>`;
+    const top = `<div class="bar"><h1>予定</h1><span class="seg"><button data-sv="list" class="${S.sv === 'list' ? 'on' : ''}">一覧</button><button data-sv="month" class="${S.sv === 'month' ? 'on' : ''}">月</button></span>${head}<span class="r"><button class="btn sm" data-stoday>今日</button><button class="btn pri" data-evadd="" ${d.connected ? '' : 'disabled title="Google カレンダーにつながっていないため、足せません"'}>+ 予定</button></span></div>`;
+    const warn = d.error ? `<div class="band">${esc(d.error)}。予定は出せません。締切と授業だけ出しています</div>` : !d.connected ? '<div class="band">Google カレンダーはまだつながっていません(設定の「Google」)。締切と授業だけ出しています</div>' : '';
+    const held = d.held.length ? `<button class="band" data-heldlist>Google に書けなかった予定 ${d.held.length}件 ›</button>` : '';
+    let main;
+    if (S.sv === 'list') {
+      main = d.days.map((x) => {
+        const rows = (x.classes ? classRow(x.classes, uni) : '') + x.items.map(row).join('');
+        return `<div class="sched-day"><h3 class="${x.date === t0 ? 'today' : ''}">${md(x.date)}${x.date === t0 ? ' 今日' : ''}</h3>${rows || '<div class="none">予定なし</div>'}</div>`;
+      }).join('');
+    } else {
+      const cells = d.days.map((x) => {
+        const out = x.date.slice(0, 7) !== S.smonth;
+        const items = [
+          ...x.items.filter((i) => i.type === 'task').map((i) => { const c = (i.label || {}).color || GRAY; return `<span class="mbar ${i.done ? 'mdone' : ''}" style="color:${c};background:color-mix(in srgb, ${c} 16%, transparent)">締切 ${esc(i.name)}</span>`; }),
+          ...(x.classes ? [`<span class="mev"><i style="background:${uni}"></i>${esc(x.classes.start)} 大学 授業${x.classes.count}</span>`] : []),
+          ...x.items.filter((i) => i.type !== 'task').map((i) => `<span class="mev"><i style="background:${(i.label || {}).color || GRAY}"></i>${i.start ? esc(i.start) + ' ' : ''}${esc(i.name)}</span>`),
+        ];
+        const dots = [...x.items.map((i) => `<i style="background:${(i.label || {}).color || GRAY}"></i>`), ...(x.classes ? [`<i style="background:${uni}"></i>`] : [])].join('');
+        return `<button data-sday="${x.date}" class="${out ? 'out' : ''} ${x.date === t0 ? 'td' : ''}"><span>${+x.date.slice(8)}</span><span class="mitems">${items.slice(0, 3).join('')}${items.length > 3 ? `<span class="mmore">他 ${items.length - 3}件</span>` : ''}</span><span class="dots">${dots}</span></button>`;
+      }).join('');
+      main = `<div class="month">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>`;
+    }
+    return top + `<div class="col" style="padding-top:4px">${warn}${held}${main}
+      <div class="hint" style="padding:12px 0">スマホなどで足した予定も、10分ごとに読んで出します。段取りさんが書いた締切は、ここではタスクとして1回だけ出します。</div></div>`;
+  }
+
+  function contOptions(sel) {
+    const ov = S.ovAll || [];
+    return `<option value="">なし</option>${ov.map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.kind)}:${esc(c.name)}</option>`).join('')}`;
+  }
+  async function loadConts() {
+    if (S.ovAll) return;
+    const n = await api('GET', '/notices');
+    S.ovAll = n.options;
+  }
+
+  async function evForm(ev, day) {
+    await loadConts();
+    const ro = ev && !ev.editable;
+    const dis = ro ? 'disabled' : '';
+    modal(`<h3>${ev ? (ro ? '予定' : '予定を直す') : '予定を足す'}</h3>
+      ${ev && ev.invited ? `<div class="hint" style="margin-bottom:8px">招待された予定です。ふだんは見るだけです。<span class="tg" style="margin-top:6px"><button class="sw ${ev.edit_allowed ? 'on' : ''}" data-evallow="${esc(ev.id)}" aria-label="直せるようにする"></button>この予定を直せるようにする</span></div>` : ''}
+      <div class="field"><span>名前</span><input id="evn" value="${esc(ev ? ev.name : '')}" placeholder="サークル" ${dis}></div>
+      <div class="field"><span>日付</span><input id="evd" type="date" value="${esc(ev ? ev.date : day || isoToday())}" ${dis}></div>
+      <div class="field"><span>時刻(空なら終日)</span><div class="two"><input id="evs" placeholder="13:00" value="${esc(ev ? ev.start || '' : '')}" ${dis}><input id="eve" placeholder="15:00" value="${esc(ev ? ev.end || '' : '')}" ${dis}></div></div>
+      <div class="field"><span>授業・会社・開発</span><select id="evc">${contOptions(ev ? ev.container_id : null)}</select></div>
+      <div class="hint">保存すると、その場で Google カレンダーにも書きます。</div>
+      <div class="acts">${ev && !ev.invited ? `<button class="btn danger l" data-evdel="${esc(ev.id)}">消す</button>` : ''}<button class="btn" data-close>${ro ? '閉じる' : 'やめる'}</button><button class="btn pri" data-evsave="${ev ? esc(ev.id) : ''}">${ev ? '保存' : '足す'}</button></div>`);
+  }
+
+  function dayModal(day) {
+    const x = S.sd.days.find((y) => y.date === day);
+    const uni = S.sd.kinds['大学'] || '#17806a';
+    const rows = x ? (x.classes ? classRow(x.classes, uni) : '') + x.items.map(row).join('') : '';
+    modal(`<h3>${md(day)}</h3>${rows || '<div class="none">予定なし</div>'}
+      <div class="acts" style="justify-content:space-between"><button class="btn pri" data-evadd="${day}" ${S.sd.connected ? '' : 'disabled'}>+ この日に予定を足す</button><button class="btn" data-close>閉じる</button></div>`);
+  }
+
+  function heldModal() {
+    const why = { 重なる予定がある: '同じ時間に予定があるため、書いていません', つながらなかった: 'Google につながらなかったため、まだ書いていません。つながったら自動でもう一度書きます' };
+    modal(`<h3>Google に書けなかった予定</h3>${S.sd.held.map((h) => `<div class="ev" style="grid-template-columns:minmax(0,1fr) auto">
+      <span>${esc(h.name)} <span class="loc">${md(h.start_at.slice(0, 10))} ${esc(h.start_at.slice(11, 16))}</span><div class="hint">${why[h.reason] || h.reason}</div></span>
+      <span class="rowb" style="margin:0">${h.reason === '重なる予定がある' ? `<button class="btn sm" data-hforce="${h.id}">それでも書く</button><button class="btn sm" data-hdrop="${h.id}">書かない</button>` : `<button class="btn sm" data-hretry="${h.id}">もう一度書く</button>`}</span></div>`).join('') || '<div class="none">ありません</div>'}
+      <div class="acts"><button class="btn" data-close>閉じる</button></div>`);
+  }
+
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('button');
+    if (!el || S.screen !== 'sched') return;
+    const d = el.dataset;
+    try {
+      if (d.sv) { S.sv = d.sv; render(); return; }
+      if (d.stoday !== undefined) { S.slist = isoToday(); S.smonth = isoToday().slice(0, 7); render(); return; }
+      if (d.snav) {
+        const n = +d.snav;
+        if (S.sv === 'list') S.slist = iso(addDays(parse(S.slist), n));
+        else { const m = parse(S.smonth + '-01'); m.setMonth(m.getMonth() + n); S.smonth = iso(m).slice(0, 7); }
+        render(); return;
+      }
+      if (d.sday) { dayModal(d.sday); return; }
+      if (d.evadd !== undefined) { await evForm(null, d.evadd); return; }
+      if (d.evopen) { await evForm(S.sevents[d.evopen]); return; }
+      if (d.evallow) {
+        const on = !el.classList.contains('on');
+        await api('PATCH', `/events/${encodeURIComponent(d.evallow)}`, { edit_allowed: on });
+        closeModal(); toast(on ? 'この予定を直せるようにしました' : 'この予定を見るだけにしました'); render(); return;
+      }
+      if (d.evsave !== undefined) {
+        const data = { name: $('#evn').value, date: $('#evd').value, start: $('#evs').value.trim(), end: $('#eve').value.trim(), container_id: +$('#evc').value || null };
+        if (d.evsave) {
+          const ev = S.sevents[d.evsave];
+          const changed = ev.editable ? data : { container_id: data.container_id };
+          await api('PATCH', `/events/${encodeURIComponent(d.evsave)}`, changed);
+          toast('直しました(Google カレンダーも直しました)');
+        } else {
+          await api('POST', '/events', data);
+          toast('予定を足しました(Google カレンダーにも書きました)');
+        }
+        closeModal(); render(); return;
+      }
+      if (d.evdel) {
+        modal(`<h3>この予定を消しますか?</h3><p>「${esc(S.sevents[d.evdel].name)}」を、Google カレンダーからも消します。元には戻せません。</p>
+          <div class="acts"><button class="btn" data-close>やめる</button><button class="btn danger" data-evdelok="${esc(d.evdel)}">消す</button></div>`);
+        return;
+      }
+      if (d.evdelok) { await api('DELETE', `/events/${encodeURIComponent(d.evdelok)}`); closeModal(); toast('消しました'); render(); return; }
+      if (d.heldlist !== undefined) { heldModal(); return; }
+      for (const [k, act, msg] of [['hretry', 'retry', ''], ['hforce', 'force', '書きました'], ['hdrop', 'drop', '書かないことにしました']]) {
+        if (d[k]) {
+          const r = await api('POST', `/held-events/${d[k]}/${act}`);
+          toast(act === 'retry' ? (r.written ? '書きました' : '重なる予定があるため、まだ書いていません') : msg);
+          S.sd = await api('GET', `/schedule?from=${range()[0]}&to=${range()[1]}`);
+          S.sd.held.length ? heldModal() : closeModal();
+          render(); return;
+        }
+      }
+    } catch (err) { if ($('#merr')) modalError(err); else toast(err.message); }
+  });
+
+  VIEWS.sched = schedView;
+})();

@@ -14,6 +14,7 @@ EVERY = timedelta(minutes=10)
 BACK_DAYS = 7          # 読む範囲:今日の7日前から
 AHEAD_DAYS = 70        # 70日先まで(予定の画面の「月」で次の月まで見えるように)
 MARK = "dandori"
+HM_RE = re.compile(r"^\d{1,2}:\d{2}$")
 PREFIX_RE = re.compile(r"^(済\s+)?(締切\s+(\d{1,2}:\d{2}\s+)?)?")
 
 _lock = threading.Lock()
@@ -131,6 +132,19 @@ def cached(day_from=None, day_to=None):
 
 def error():
     return _cache["error"]
+
+
+def remember(ev):
+    """画面で足した予定を、次に読むまでの間も出せるようにする。"""
+    with _lock:
+        if _cache["at"] is not None:
+            _cache["items"] = [i for i in _cache["items"] if i["id"] != ev["id"]] + [normalize(ev)]
+
+
+def forget(gid):
+    """直した・消した予定は、次に読むまで出さない(古い形のまま出さないため)。"""
+    with _lock:
+        _cache["items"] = [i for i in _cache["items"] if i["id"] != gid]
 
 
 def refresh(con, now=None, api=None, force=False):

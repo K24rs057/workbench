@@ -39,6 +39,7 @@ def create_app(db_path=None):
     import api_worklog  # noqa: F401  作業記録の API を bp に足す
     import api_agent  # noqa: F401  モッチの API を bp に足す
     import api_mail  # noqa: F401  連絡の API を bp に足す
+    import api_sched  # noqa: F401  予定の画面の API を bp に足す
     app.register_blueprint(api.bp)
 
     @app.get("/")
