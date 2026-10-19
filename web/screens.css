@@ -113,3 +113,14 @@
   .tbody{grid-template-columns:1fr}
   .rcol{border-left:0;padding:0 18px;border-top:1px solid var(--line)}
 }
+
+/* 作業記録・確認してほしいこと */
+.log{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px;align-items:center}
+.log .tm{color:var(--sub)}
+.cm{color:var(--sub);font-size:11.5px}
+.qcard{padding:12px 0;border-bottom:1px solid var(--line)}
+.qcard b{font-weight:500}
+.qcard .s{color:var(--sub);font-size:12px;margin:2px 0 6px}
+.qcard select{border:1px solid var(--line2);border-radius:6px;padding:3px 6px;background:var(--win)}
+.btn.sm{padding:1px 8px;font-size:12px}
+.ask1{margin:0 0 8px;padding:8px 10px;background:var(--blue-wash);border-radius:6px;font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}

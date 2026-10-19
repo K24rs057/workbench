@@ -67,6 +67,10 @@ def build(con, today=None):
     err = timetable.error(con)
     if err:
         notices.append({"kind": "error", "text": "時間割を読めませんでした。前に読んだ時間割を使っています"})
+    import worklog
+    waiting = con.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
+    if waiting:
+        notices.append({"kind": "ask", "text": f"確認してほしいこと {waiting}件", "count": waiting})
     if ov["unsorted"]:
         notices.append({"kind": "unsorted", "text": f"未分類 {ov['unsorted']}件", "count": ov["unsorted"]})
 
@@ -77,6 +81,7 @@ def build(con, today=None):
                   "items": [{"id": i["id"], "name": i["name"], "progress": i["progress"]} for i in gauge_items]},
         "links": link_rows,
         "notices": notices,
+        "done_questions": worklog.open_done_questions(con, today),
         "overdue": overdue, "today_tasks": today_, "week": week, "nodue": nodue,
         "classes_today": classes_today, "classes_tomorrow": classes_tomorrow,
     }

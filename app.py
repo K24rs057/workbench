@@ -26,6 +26,7 @@ def create_app(db_path=None):
     app.config["DB_PATH"] = db_path
     app.json.ensure_ascii = False
     db.init(db_path)
+    import api_worklog  # noqa: F401  作業記録の API を bp に足す
     app.register_blueprint(api.bp)
 
     @app.get("/")
@@ -47,6 +48,31 @@ def create_app(db_path=None):
     return app
 
 
+def start_worklog(db_path):
+    """1分ごとに、前に出ている窓の名前を読んで作業記録をつける(F4)。"""
+    import threading
+    import time
+
+    import worklog
+
+    def loop():
+        while True:
+            try:
+                with db.session(db_path) as con:
+                    worklog.tick(con, worklog.foreground())
+            except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
+                try:
+                    with db.session(db_path) as con:
+                        con.execute(
+                            "INSERT INTO job_status(job, last_error) VALUES ('作業記録', ?) "
+                            "ON CONFLICT(job) DO UPDATE SET last_error = excluded.last_error", (str(e),))
+                except Exception:
+                    pass
+            time.sleep(60)
+
+    threading.Thread(target=loop, daemon=True, name="worklog").start()
+
+
 def main():
     parser = argparse.ArgumentParser(description=f"{APP_NAME}の本体")
     parser.add_argument("--port", type=int, default=PORT)
@@ -58,6 +84,7 @@ def main():
     import timetable
     with db.session(db_path) as con:
         timetable.refresh(con, force=True)
+    start_worklog(db_path)
     app.run(host=HOST, port=args.port, threaded=True, use_reloader=False)
 
 
