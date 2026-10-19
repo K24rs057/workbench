@@ -59,10 +59,11 @@ def create_app(db_path=None):
 
 
 def start_worklog(db_path):
-    """1分ごとに、前に出ている窓の名前を読んで作業記録をつける(F4)。"""
+    """1分ごとに、作業記録をつけ(F4)、通知を確かめる(F8)。"""
     import threading
     import time
 
+    import notify
     import worklog
 
     def loop():
@@ -70,6 +71,8 @@ def start_worklog(db_path):
             try:
                 with db.session(db_path) as con:
                     worklog.tick(con, worklog.foreground())
+                with db.session(db_path) as con:
+                    notify.check(con)
             except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
                 try:
                     with db.session(db_path) as con:

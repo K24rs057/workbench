@@ -21,8 +21,12 @@ def build(con, today=None):
     ).fetchall()
     sort_first = {r["container_id"]: r["sort_first"] for r in rows}
 
+    import notify
+    warn = notify.marks(con, today)
+
     def item(r):
         j = tasks.to_json(con, r)
+        j["warn"] = warn.get(r["id"])
         j["label"] = {"name": r["c_name"], "color": containers.GRAY if r["is_unsorted"] else r["k_color"]}
         j["unsorted"] = bool(r["is_unsorted"])
         return j
@@ -61,6 +65,12 @@ def build(con, today=None):
 
     # お知らせ(2段目)。①で出せるものだけ
     notices = []
+    import notify as _n
+    import status as _st
+    for text in _n.take_pending(con):
+        notices.append({"kind": "pc", "text": text})
+    if _st.late_jobs(con):
+        notices.append({"kind": "error", "text": "止まっている仕事があります(設定の「本体の様子」)"})
     term = timetable.term_notice(con, today)
     if term:
         notices.append({"kind": "term", "text": term})

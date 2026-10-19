@@ -149,3 +149,11 @@ def rules_delete(rid):
     with con() as c:
         c.execute("DELETE FROM window_rules WHERE id = ?", (rid,))
         return jsonify(ok=True)
+
+
+@bp.get("/status")
+def status_view():
+    import autostart
+    import status
+    with con() as c:
+        return jsonify(jobs=status.jobs(c), autostart=autostart.status())

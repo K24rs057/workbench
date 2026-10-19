@@ -102,12 +102,13 @@ function taskRow(t, label) {
   const name = !t.open_target ? esc(t.name)
     : web ? `<a class="tlink" href="${esc(t.open_target)}" target="_blank" rel="noopener" title="${esc(t.open_label)}を開く">${esc(t.name)}</a><span class="to">${esc(t.open_label)}</span>`
     : `<button class="tlink" data-topen="${t.id}" title="${esc(t.open_label)}を開く">${esc(t.name)}</button><span class="to">${esc(t.open_label)}</span>`;
+  const warn = t.warn ? `<span class="mk mk-warn">${esc(t.warn)}</span>` : '';
   const pick = t.unsorted ? '<button class="mk mk-pick" data-sort>どれのタスクか選んで</button>' : '';
   const rep = t.repeat_weekday !== null && t.repeat_weekday !== undefined ? `<span class="mk mk-rep">毎週${WEEK[(t.repeat_weekday + 1) % 7]}</span>` : '';
   const late = t.due_date && !t.done && t.due_date < isoToday();
   return `<div class="task ${label ? 'withLab' : ''} ${t.done ? 'done' : ''}">
     <button class="ck" data-done="${t.id}" aria-label="${t.done ? '完了を外す' : '完了にする'}"></button>${label || ''}
-    <span class="nm">${name}${rep}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
+    <span class="nm">${name}${rep}${warn}${pick}<button class="link" data-edit="${t.id}" style="margin-left:8px;font-size:11.5px">直す</button></span>
     <span class="due ${late ? 'late' : ''}">${late ? '遅れ ' : ''}${esc(dueLabel(t))}</span></div>`;
 }
 
@@ -188,6 +189,13 @@ async function rulesSection() {
   const rows = rules.map((r) => `<div class="krow" style="grid-template-columns:90px minmax(0,1fr) minmax(0,1fr) auto"><span class="hint">${esc(r.app)}</span><input class="nmin" value="${esc(r.pattern)}" data-rpat="${r.id}" aria-label="覚える文字"><span>${r.ignore ? '記録しない' : esc(r.container || '')}</span><button class="link danger" data-rdel="${r.id}">消す</button></div>`).join('');
   return `<div class="sset"><h3>作業記録</h3><div class="hint" style="margin-bottom:6px">覚えた窓の名前と、どれの作業かの組み合わせです。覚える文字は直せます。消すと、次に見たときにまた聞きます。</div>${rows || '<div class="hint">まだありません。</div>'}</div>`;
 }
+async function statusSection() {
+  const st = await api('GET', '/status');
+  const t = (iso) => (iso ? iso.replace('T', ' ').slice(5, 16) : 'まだ動いていません');
+  const jobs = st.jobs.map((j) => `<div class="kv"><span>${esc(j.job)}</span><span class="${j.late && j.last_run_at ? 'late' : ''}">最後に動いた ${esc(t(j.last_run_at))}${j.late && j.last_run_at ? ' ― 遅れています' : ''}${j.error ? `(${esc(j.error)})` : ''}</span></div>`).join('');
+  const auto = Object.entries(st.autostart).map(([n, ok]) => `<div class="kv"><span>${esc(n)}</span><span class="${ok ? '' : 'late'}">${ok ? '登録されています' : '登録されていません'}</span></div>`).join('');
+  return `<div class="sset"><h3>本体の様子</h3>${jobs}<div class="sh" style="margin-top:10px">タスクスケジューラ(PC を起動したら自動で動き出す)</div>${auto}</div>`;
+}
 async function setView() {
   const kinds = await api('GET', '/kinds');
   S.kinds = kinds;
@@ -200,6 +208,7 @@ async function setView() {
   return bar('設定') + `<div class="col">
     <div class="sset"><h3>種類</h3>${rows}<div class="rowb"><button class="btn" data-kadd>+ 種類を足す</button><span class="hint">灰色は未分類だけの色なので選べません。中に授業・会社・開発がある種類は消せません</span></div></div>
     ${await rulesSection()}
+    ${await statusSection()}
     <div class="sset"><h3>これから足す設定</h3><div class="hint">大学(学期の終わりの日)・作業記録(覚えた画面の名前)・本体の様子・モッチは、区切りごとにここに増えます。</div></div></div>`;
 }
 

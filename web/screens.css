@@ -124,3 +124,8 @@
 .qcard select{border:1px solid var(--line2);border-radius:6px;padding:3px 6px;background:var(--win)}
 .btn.sm{padding:1px 8px;font-size:12px}
 .ask1{margin:0 0 8px;padding:8px 10px;background:var(--blue-wash);border-radius:6px;font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+
+.mk-warn{background:var(--amber-wash);color:var(--amber)}
+.kv{display:grid;grid-template-columns:200px minmax(0,1fr);gap:4px 12px;font-size:12.5px;padding:3px 0}
+.kv span:first-child{color:var(--sub)}
+@media (max-width:760px){.kv{grid-template-columns:1fr}}
