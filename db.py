@@ -177,6 +177,16 @@ CREATE TABLE IF NOT EXISTS held_events (
     ai_read INTEGER NOT NULL DEFAULT 0,
     ai_excerpt TEXT
 );
+CREATE TABLE IF NOT EXISTS event_extras (
+    id INTEGER PRIMARY KEY,
+    google_event_id TEXT NOT NULL UNIQUE,
+    edit_allowed INTEGER NOT NULL DEFAULT 0,
+    marked INTEGER NOT NULL DEFAULT 0,
+    task_id INTEGER,
+    container_id INTEGER,
+    synced_date TEXT,
+    synced_summary TEXT
+);
 CREATE TABLE IF NOT EXISTS agent_messages (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,

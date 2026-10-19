@@ -222,7 +222,8 @@ async function mailSection() {
     <div class="hint" style="margin:2px 0 8px">Indeed・タウンワークなどの中継アドレスは、初めて届いたときに「どのバイト先?」と聞いて覚えます。お店から直接届くときは、@ から後ろを入れておきます</div></div>
     <div class="sset"><h3>Google</h3>
     <div class="kv"><span>Gmail</span><span>${esc(g.state)} ${g.state === '合鍵なし' ? '' : `<a class="btn sm" href="/auth/google">${g.state === '許可済み' ? '許可し直す' : 'Google と連携する'}</a>`}</span></div>
-    <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div></div>`;
+    <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div>
+    <div class="kv"><span>カレンダー</span><span>${g.calendar ? '許可済み(予定の読み書き)' : g.state === '許可済み' ? 'まだ許可していません。上の [許可し直す] を押して、カレンダーの予定の表示と編集も許可してください' : 'Gmail と一緒に許可します'}</span></div></div>`;
 }
 function mochiSection() {
   const st = window.Mochi ? Mochi.settings() : {};
@@ -264,6 +265,15 @@ let KIND_UNI = '#17806a';
 function heldRows(list) {
   return (list || []).map((h) => `<div class="tl"><span>${esc(h.start)}</span><span>${esc(h.name)} <span class="mk mk-rep" title="Google カレンダーにつながったら書きます">預かり中</span></span></div>`).join('');
 }
+// 今日の時間:授業・Google の予定・預かった予定を、時刻順に混ぜる(F12)
+function dayRows(classes, events, held) {
+  const rows = [
+    ...(classes || []).map((c) => [c.start, `<div class="tl"><span>${esc(c.start)}</span><span>${kindLabel(c.name, KIND_UNI)} 授業</span></div>`]),
+    ...(events || []).map((e) => [e.start, `<div class="tl"><span>${esc(e.start)}${e.end ? '〜' + esc(e.end) : ''}</span><span>${esc(e.name)}${e.invited ? ' <span class="mk mk-pick">招待</span>' : ''}</span></div>`]),
+    ...(held || []).map((h) => [h.start === '終日' ? '00:00' : h.start, heldRows([h])]),
+  ].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return rows.length ? rows.map((r) => r[1]).join('') : '<div class="hint">なし</div>';
+}
 async function topView() {
   const t = await api('GET', '/top');
   S.top = t;
@@ -277,7 +287,7 @@ async function topView() {
     ${S.gOpen ? `<div class="gdetail"><div class="gsub">種類ごと</div>${g.kinds.map((k) => gline(k.name, k.progress, k.color)).join('')}${g.items.length ? `<div class="gsub">今日・今週にタスクがある授業・会社・開発</div>${g.items.map((i) => gline(i.name, i.progress)).join('')}` : ''}</div>` : ''}</div>`;
   const links = t.links.length ? `<div class="sec"><div class="sh">今日のリンク</div><div class="links">${t.links.map((l) => linkBtn(l, l.container)).join('')}</div></div>` : '';
   const dq = (t.done_questions || []).map((q) => `<div class="ask1">${esc(q.container)}で終わったタスクはある?${q.tasks.map((x) => `<button class="btn sm" data-dqdone="${q.id}" data-task="${x.id}">${esc(x.name)}</button>`).join('')}<button class="btn sm" data-dqno="${q.id}">まだ</button></div>`).join('');
-  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail" data-mcat="asks">${esc(n.text)}</button>` : n.kind === 'mail' ? `<button data-go="mail" data-mcat="mails">${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
+  const notices = t.notices.length || dq ? `<div class="sec"><div class="sh">お知らせ</div>${dq}<div class="note">${t.notices.map((n) => n.kind === 'unsorted' ? `<button data-sort>${esc(n.text)}</button>` : n.kind === 'ask' ? `<button data-go="mail" data-mcat="asks">${esc(n.text)}</button>` : n.kind === 'mail' ? `<button data-go="mail" data-mcat="mails">${esc(n.text)}</button>` : n.kind === 'held' ? `<button data-go="sched">${esc(n.text)}</button>` : `<span class="${n.kind === 'error' ? 'late' : ''}">${esc(n.text)}</span>`).join('')}</div></div>` : '';
   const over = t.overdue.length ? `<div class="sec overdue"><div class="sh">期限切れ</div>${t.overdue.map((x) => taskRow(x, lab(x))).join('')}</div>` : '';
   const sec = (title, list, empty) => `<div class="sec"><div class="sh">${title} <span class="n">${list.length}</span></div>${list.length ? list.map((x) => taskRow(x, lab(x))).join('') : `<div class="hint">${empty}</div>`}</div>`;
   const nothing = !S.c.tasks.length;
@@ -285,8 +295,8 @@ async function topView() {
     `<div class="tbody"><div class="col">${gauge}${links}${notices}${over}
       <div class="sec"><div class="rowb" style="margin-top:0"><button class="btn" data-addtop>+ タスクを足す</button><span class="hint">1行で打って足す欄(1行入力)は、あとで作ります</span></div></div>
       ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '「+ タスクを足す」か、「授業・会社・開発」の画面から足せます。') : sec('今日', t.today_tasks, '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
-      <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${timeRows(t.classes_today)}${heldRows(t.held_today)}</div><div class="sec"><div class="sh">明日の時間</div>${timeRows(t.classes_tomorrow)}${heldRows(t.held_tomorrow)}</div>
-      <div class="hint" style="padding:10px 0">予定(Google カレンダー)は、作る順番の③でここに混ざります。</div></aside></div>`;
+      <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${dayRows(t.classes_today, t.events_today, t.held_today)}</div><div class="sec"><div class="sh">明日の時間</div>${dayRows(t.classes_tomorrow, t.events_tomorrow, t.held_tomorrow)}</div>
+      ${t.calendar_on ? '' : '<div class="hint" style="padding:10px 0">Google カレンダーは、設定の「Google」で許可するとここに混ざります。</div>'}</aside></div>`;
 }
 async function addTaskFromTop() {
   const ov = await api('GET', '/containers');

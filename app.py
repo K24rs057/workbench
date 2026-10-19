@@ -91,6 +91,7 @@ def start_worklog(db_path):
     import threading
     import time
 
+    import gcal
     import gmail
     import mails
     import notify
@@ -120,6 +121,11 @@ def start_worklog(db_path):
                     mails.run_claude_jobs(con)
             except Exception as e:
                 _log_error(db_path, "Gmail", e)
+            try:  # カレンダーは10分ごと。タスクが変わったときは次の1分で直す(F12・F13)
+                with db.session(db_path) as con:
+                    gcal.refresh(con)
+            except Exception as e:
+                _log_error(db_path, "Google カレンダー", e)
             time.sleep(60)
 
     threading.Thread(target=loop, daemon=True, name="worklog").start()

@@ -15,7 +15,9 @@ import mails
 
 ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"  # 予定の読み書きだけ(カレンダーを作る・共有を変える権限は頼まない)
+SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE]
 FIRST_DAYS = 30
 EVERY = timedelta(minutes=10)
 MAX_PER_RUN = 200
@@ -78,7 +80,7 @@ def credentials(env=None):
     from google.oauth2.credentials import Credentials
     c = cfg["installed"]
     return Credentials(None, refresh_token=token, token_uri=c["token_uri"], client_id=c["client_id"],
-                       client_secret=c["client_secret"], scopes=SCOPES)
+                       client_secret=c["client_secret"])  # 許可済みの範囲のまま使う
 
 
 def state(env=None):
@@ -87,6 +89,12 @@ def state(env=None):
     if not client_config(env):
         return "合鍵なし"
     return "許可済み" if env.get("GOOGLE_REFRESH_TOKEN") else "未許可"
+
+
+def calendar_allowed(env=None):
+    """カレンダーの予定の読み書きまで許可されているか(作る順番③で許可し直す前は、Gmail だけ)。"""
+    env = env if env is not None else read_env()
+    return state(env) == "許可済み" and CALENDAR_SCOPE in (env.get("GOOGLE_SCOPES") or "")
 
 
 def import_client_json(json_path, env_path=None):
@@ -124,7 +132,8 @@ def finish_auth(state_value, full_url):
     token = flow.credentials.refresh_token
     if not token:
         raise ValueError("Google から通行証が届きませんでした。もう一度許可してください")
-    write_env({"GOOGLE_REFRESH_TOKEN": token})
+    granted = flow.credentials.granted_scopes or SCOPES
+    write_env({"GOOGLE_REFRESH_TOKEN": token, "GOOGLE_SCOPES": " ".join(granted)})
 
 
 # ---------- 読む ----------

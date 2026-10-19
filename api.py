@@ -22,6 +22,16 @@ def user_error(e):
     return jsonify(error=str(e)), 400
 
 
+@bp.after_request
+def calendar_follow(res):
+    """タスク・入れ物・連絡が変わったら、次の1分の見回りでカレンダーも直す(F13)。"""
+    if request.method != "GET" and res.status_code < 400 and request.path.startswith(("/api/tasks", "/api/containers", "/api/messages", "/api/agent", "/api/unsorted")):
+        import gcal
+        with con() as c:
+            gcal.mark_dirty(c)
+    return res
+
+
 # ---------- 種類(A30 の一部) ----------
 @bp.get("/kinds")
 def kinds_list():

@@ -123,7 +123,7 @@ def task_ai(tid):
 def mail_settings():
     with con() as c:
         return jsonify(university_domain=mails.setting(c, "university_domain") or "",
-                       google={"state": gmail.state()}, gmail_error=mails.setting(c, "gmail_error"))
+                       google={"state": gmail.state(), "calendar": gmail.calendar_allowed()}, gmail_error=mails.setting(c, "gmail_error"))
 
 
 @bp.patch("/settings/mail")

@@ -48,6 +48,14 @@ def build(con, today=None):
         return [{"name": h["title"], "start": (h["start_at"][11:16] or "終日"), "held": True}
                 for h in con.execute("SELECT * FROM held_events WHERE substr(start_at, 1, 10) = ? ORDER BY start_at", (day.isoformat(),))]
 
+    import gcal
+
+    def events(day):
+        """Google カレンダーの、時刻の決まった予定(F12)。段取りさんが書いた締切は出さない。"""
+        got = gcal.cached(day.isoformat(), day.isoformat())
+        return [{"name": e["name"], "start": e["start"], "end": e["end"], "invited": e["invited"]}
+                for e in (got or []) if not e["all_day"] and e["marked"] != "task"]
+
     # 今日のリンク:今日の授業の順 → 「いつもトップに出す」(基本設計 S1-12)
     link_rows, seen = [], set()
     def add_links(cid, extra=None):
@@ -88,7 +96,10 @@ def build(con, today=None):
     new_mail = con.execute("SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN ('Forms', '提出受付')").fetchone()[0]
     if new_mail:
         notices.append({"kind": "mail", "text": f"新しい連絡 {new_mail}件", "count": new_mail})
-    for key in ("outlook_error", "gmail_error"):
+    waiting_held = len(gcal.held_waiting(con))
+    if waiting_held:
+        notices.append({"kind": "held", "text": f"カレンダーに書かなかった予定 {waiting_held}件", "count": waiting_held})
+    for key in ("outlook_error", "gmail_error", "calendar_error"):
         oe = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         if oe:
             notices.append({"kind": "error", "text": oe["value"]})
@@ -106,6 +117,8 @@ def build(con, today=None):
         "overdue": overdue, "today_tasks": today_, "week": week, "nodue": nodue,
         "classes_today": classes_today, "classes_tomorrow": classes_tomorrow,
         "held_today": held(today), "held_tomorrow": held(tomorrow),
+        "events_today": events(today), "events_tomorrow": events(tomorrow),
+        "calendar_on": gcal.cached() is not None,
         "new_mail": new_mail,
     }
 

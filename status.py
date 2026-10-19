@@ -3,8 +3,9 @@ from datetime import datetime, timedelta
 
 # 遅れの目安(Claude の案。基本設計 エラー「裏の仕事が止まっている」)。①で動く仕事だけ
 LIMITS = {"作業記録": timedelta(minutes=5), "通知": timedelta(minutes=5), "時間割の読み込み": timedelta(minutes=30),
-          "Outlook": timedelta(minutes=30), "Gmail": timedelta(minutes=30)}
-OPTIONAL = {"Gmail"}  # Google の許可をしてから動く仕事。一度も動いていなければ出さない
+          "Outlook": timedelta(minutes=30), "Gmail": timedelta(minutes=30),
+          "Google カレンダー": timedelta(minutes=30)}
+OPTIONAL = {"Gmail", "Google カレンダー"}  # Google の許可をしてから動く仕事。一度も動いていなければ出さない
 
 
 def jobs(con, now=None):
