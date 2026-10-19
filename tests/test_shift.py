@@ -57,6 +57,13 @@ def test_failure_message(db_path):
             shift.read_photo(con, b"x", "a.pdf", runner=bad)
 
 
+def test_times_without_minutes():
+    """手書きの「15-22」を Claude が「15」「22」のまま返しても読める。"""
+    got = shift.clean([{"date": "2026-11-16", "start": "15", "end": "22"}, {"date": "2026-11-17", "start": "9時", "end": "22：00"},
+                       {"date": "2026-11-18", "start": "25", "end": "26"}])
+    assert got == [{"date": "2026-11-16", "start": "15:00", "end": "22:00"}, {"date": "2026-11-17", "start": "09:00", "end": "22:00"}]
+
+
 def test_title_by_number_of_places(db_path):
     db.init(db_path)
     with db.session(db_path) as con:

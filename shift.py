@@ -21,9 +21,13 @@ TIMEOUT = 180
 SCHEMA = {"type": "object", "properties": {"shifts": {"type": "array", "items": {"type": "object", "properties": {
     "date": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}}, "required": ["date", "start", "end"]}}},
     "required": ["shifts"]}
-SYSTEM = ("あなたはアルバイトのシフト表の写真から、1人の人のシフトだけを読み取る係です。"
-          "写真のファイルを Read で読み、name の人の行(または列)だけを見る。ほかの人の名前やシフトは答えに入れない。"
-          "date は YYYY-MM-DD(年が書いていなければ today に近い年)、start と end は HH:MM。休みの日は入れない。"
+SYSTEM = ("あなたはアルバイトのシフト表の写真から、1人の人のシフトだけを読み取る係です。写真のファイルを Read で読む。"
+          "写真は横向き・逆さ・斜めのこともあるので、向きを直して読む。"
+          "表には2つの形がある。(1) 何人もの名前が並ぶ表:name の人の行(または列)だけを見て、ほかの人の名前やシフトは答えに入れない。"
+          "(2) 1人分の勤務予定表(カレンダーの形で、氏名の欄が1つ):その表に書き込まれた時刻を全部読む。氏名の欄が name と少しちがって見えても、手書きなどで読みにくいだけなら同じ人とみなす。"
+          "時刻は手書きで「15-22」「9〜22」「15:30-22」のように分を省いて書かれることが多い。15-22 は 15:00〜22:00 のこと。"
+          "日付は、その時刻が書き込まれたマスの日付(マスに印刷された日の数字と、表の年月)。時刻が書き込まれていない日・休みの日は入れない。"
+          "date は YYYY-MM-DD(年が書いていなければ today に近い年)、start と end は HH:MM。"
           "読み取れなければ shifts は空。説明はしない。")
 
 
@@ -105,15 +109,25 @@ def clean(rows):
             d = date.fromisoformat(str(r.get("date")))
         except ValueError:
             continue
-        s, e = r.get("start"), r.get("end")
-        if not (isinstance(s, str) and gcal.HM_RE.match(s) and isinstance(e, str) and gcal.HM_RE.match(e)):
+        s, e = _hm(r.get("start")), _hm(r.get("end"))
+        if not (s and e):
             continue
-        out.append({"date": d.isoformat(), "start": _pad(s), "end": _pad(e)})
+        out.append({"date": d.isoformat(), "start": s, "end": e})
     return sorted(out, key=lambda x: (x["date"], x["start"]))
 
 
-def _pad(hm):
-    h, m = hm.split(":")
+def _hm(v):
+    """「9:00」「9」「15時」を「09:00」「15:00」にそろえる。時刻でなければ None。"""
+    if not isinstance(v, str):
+        return None
+    v = v.strip().replace("時", ":").replace("：", ":").rstrip(":")
+    if v.isdigit():
+        v += ":00"
+    if not gcal.HM_RE.match(v):
+        return None
+    h, m = v.split(":")
+    if int(h) > 23 or int(m) > 59:
+        return None
     return f"{int(h):02d}:{m}"
 
 
