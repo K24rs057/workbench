@@ -19,6 +19,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 FIRST_DAYS = 30
 EVERY = timedelta(minutes=10)
 MAX_PER_RUN = 200
+GAP = 0.15                 # 1通ごとの間(秒)。Google の1秒あたりの上限より十分ゆっくり読む
 
 # 応募サイトの中継アドレス(バイト先ごとに @ の前がちがう。Q21)
 RELAY_DOMAINS = ("indeedemail.com", "r-sender.jp")
@@ -168,6 +169,21 @@ def _address(from_header):
     return (m.group(1) if m else (from_header or "")).strip().lower()
 
 
+def _get(svc, mid, tries=4):
+    """1通を読む。Google の回数の上限(1秒あたり)に当たらないよう間をあけ、当たったら少し待ってやり直す。"""
+    import time
+    from googleapiclient.errors import HttpError
+    for i in range(tries):
+        time.sleep(GAP)
+        try:
+            return svc.users().messages().get(userId="me", id=mid, format="full").execute()
+        except HttpError as e:
+            limited = e.resp.status == 429 or (e.resp.status == 403 and ("uota" in str(e) or "ateLimit" in str(e)))
+            if not limited or i == tries - 1:
+                raise
+            time.sleep(2 ** (i + 1))
+
+
 def read_inbox(since, creds=None):
     """since より新しい受信メールを新しい順に返す(読むだけ)。"""
     from googleapiclient.discovery import build
@@ -185,7 +201,7 @@ def read_inbox(since, creds=None):
             break
     out = []
     for mid in ids[:MAX_PER_RUN]:
-        m = svc.users().messages().get(userId="me", id=mid, format="full").execute()
+        m = _get(svc, mid)
         hs = m.get("payload", {}).get("headers", [])
         out.append({"source": "Gmail", "external_id": "gmail:" + mid, "subject": _header(hs, "Subject"),
                     "sender": _address(_header(hs, "From")), "received_at": datetime.fromtimestamp(int(m["internalDate"]) / 1000),
