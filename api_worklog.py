@@ -130,7 +130,7 @@ def notices_list():
             if r["kind"] == "window":
                 pw = c.execute("SELECT title FROM pending_windows WHERE id = ?", (r["pending_window_id"],)).fetchone()
                 item["pattern"] = pw["title"].split("|", 1)[1] if pw else ""
-            elif r["kind"] == "候補日":
+            elif r["kind"] in ("候補日", "ブリーフの締切"):
                 item["data"] = json.loads(r["body"])
             elif r["kind"] == "バイト先の質問":
                 m = c.execute("SELECT sender FROM messages WHERE id = ?", (r["message_id"],)).fetchone()
@@ -153,6 +153,12 @@ def notices_answer(nid):
             mails.answer_candidate(c, n, b.get("index"), bool(b.get("none")))
         elif n["kind"] == "自動で完了":  # お知らせなので [わかった] で消すだけ。タスクは「自動で完了」の欄に残る
             c.execute("UPDATE notices SET answered = 1 WHERE id = ?", (nid,))
+        elif n["kind"] == "ブリーフの締切":  # ブリーフが見つけた締切:入れ物を選んでタスクにする/いらない
+            import brief
+            try:
+                brief.answer_finding(c, n, b.get("container_id"), bool(b.get("none")))
+            except ValueError as e:
+                raise UserError(str(e))
         else:
             try:
                 worklog.answer_window(c, nid, b.get("container_id"), bool(b.get("ignore")), b.get("pattern"))

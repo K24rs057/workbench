@@ -389,6 +389,9 @@ async function mailViewOld() {
     ? `<div class="qcard"><b>${esc(n.data.text)}</b><div class="s">Claude が読み取った候補日です。相手に返事をして決まったら、その日を押すと予定に入ります</div>
        <div class="rowb">${n.data.dates.map((x, i) => `<button class="btn sm" data-cand="${n.id}" data-ci="${i}">${esc(x.date.slice(5).replace('-', '/'))}(${WEEK[new Date(x.date + 'T00:00').getDay()]}) ${esc(x.start || '')}${x.end ? '〜' + esc(x.end) : ''}</button>`).join('')}
        <button class="btn sm" data-candno="${n.id}">どれも入れない</button></div></div>`
+    : n.kind === 'ブリーフの締切'
+    ? `<div class="qcard"><b>${esc(n.data.title)}(${esc(n.data.date.slice(5).replace('-', '/'))}${n.data.time ? ' ' + esc(n.data.time) : ''}まで)</b><div class="s">モーニングブリーフが見つけた締切です${n.data.source ? `(${esc(n.data.source)})` : ''}。タスクにするときは、どの授業・会社・開発のものかを選んでください</div>
+       <div class="rowb"><select id="bfc${n.id}"><option value="">選ぶ…</option>${d.options.map((o) => `<option value="${o.id}">${esc(o.kind)}:${esc(o.name)}</option>`).join('')}</select><button class="btn sm pri" data-bfok="${n.id}">タスクにする</button><button class="btn sm" data-bfno="${n.id}">いらない</button></div></div>`
     : n.kind === '自動で完了'
     ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">ちがうときは、「自動で完了」の欄の [戻す] で未完了に戻せます</div><div class="rowb"><button class="btn sm" data-nok="${n.id}">わかった</button><button class="btn sm" data-undo="${n.task_id}">戻す</button></div></div>`
     : `<div class="qcard"><b>${esc(n.body)}</b></div>`;
@@ -530,6 +533,8 @@ document.addEventListener('click', async (e) => {
     if (d.mcat) { S.mcat = d.mcat; S.mail = null; S.autoBefore = null; render(); return; }
     if (d.automore) { S.autoBefore = d.automore; render(); return; }
     if (d.undo) { await api('POST', `/auto-done/${d.undo}/undo`); toast('未完了に戻しました'); render(); return; }
+    if (d.bfok) { const v = $(`#bfc${d.bfok}`).value; await api('POST', `/notices/${d.bfok}/answer`, { container_id: v ? +v : null }); toast('タスクにしました'); render(); return; }
+    if (d.bfno) { await api('POST', `/notices/${d.bfno}/answer`, { none: true }); render(); return; }
     if (d.nok) { await api('POST', `/notices/${d.nok}/answer`, {}); render(); return; }
     if (d.maybe !== undefined) { await maybeModal(); return; }
     if (d.mbyes || d.mbno) { await api('POST', `/maybe-done/${d.mbyes || d.mbno}`, { done: !!d.mbyes }); toast(d.mbyes ? '完了にしました' : 'このタスクは、しばらく聞きません'); await maybeModal(); return; }

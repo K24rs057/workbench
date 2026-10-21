@@ -38,6 +38,34 @@ def messages_summary():
         return jsonify(new=new, asks=asks, auto=auto, error=err)
 
 
+# ---------- モーニングブリーフとの連携(F22 1.07・モッチ-5 A) ----------
+@bp.get("/brief")
+def brief_get():
+    """ブリーフの夜の PC の回が読む:対象日の段取りと、段取りさんの様子。"""
+    import brief
+    from datetime import date, datetime
+    day = request.args.get("date")
+    since = request.args.get("since")
+    try:
+        d = date.fromisoformat(day) if day else None
+        s = datetime.fromisoformat(since) if since else None
+    except ValueError:
+        raise UserError("日付の形がちがいます")
+    with con() as c:
+        return jsonify(summary=brief.summary(c, d), health=brief.health(c, s))
+
+
+@bp.post("/brief/findings")
+def brief_findings():
+    """ブリーフが見つけた締切を「確認してほしいこと」に入れる。"""
+    import brief
+    items = body().get("items") or []
+    if not isinstance(items, list):
+        raise UserError("items は一覧で送ってください")
+    with con() as c:
+        return jsonify(added=brief.add_findings(c, items))
+
+
 # ---------- 自動で完了(F18、S3-5・S1-4a、A28) ----------
 @bp.get("/auto-done")
 def auto_done_list():
