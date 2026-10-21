@@ -53,12 +53,34 @@
       : `<span class="date snav"><button class="link" data-snav="-1" aria-label="前の月">‹</button> ${S.smonth.slice(0, 4)}年${+S.smonth.slice(5)}月 <button class="link" data-snav="1" aria-label="次の月">›</button></span>`;
   }
 
+  function keepEvents(d) {
+    S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: i.first || x.date }])));
+  }
+
+  // ---------- トップの一番下の月のカレンダー(2026-10-21 本人の依頼) ----------
+  async function topCal() {
+    S.tmonth = S.tmonth || isoToday().slice(0, 7);
+    const m = S.tmonth;
+    const [a, b] = range(m);
+    const d = await api('GET', `/schedule?from=${a}&to=${b}`);
+    S.sd = d;  // 日の小窓・予定の小窓は、予定の画面と同じものを使う
+    keepEvents(d);
+    setTimeout(() => [-1, 1].forEach((k) => {  // となりの月を先に読んでおく
+      const [x, y] = range(shiftMonth(m, k));
+      api('GET', `/schedule?from=${x}&to=${y}`).catch(() => {});
+    }), 300);
+    const uni = d.kinds['大学'] || '#17806a';
+    const warn = d.error ? `<div class="hint">${esc(d.error)}。予定は出せません。締切と授業だけ出しています</div>` : '';
+    return `<div class="sec topcal"><div class="sh">予定<span class="snav"><button data-tnav="-1" aria-label="前の月">‹</button>${m.slice(0, 4)}年${+m.slice(5)}月<button data-tnav="1" aria-label="次の月">›</button></span><button class="link open" data-topensched>予定の画面で開く ›</button></div>${warn}${monthGrid(d, uni, isoToday(), m)}</div>`;
+  }
+  window.topCal = topCal;
+
   async function schedView() {
     const [a, b] = range();
     const d = await api('GET', `/schedule?from=${a}&to=${b}`);
     S.sd = d;
     S.c = { tasks: d.days.flatMap((x) => x.items.filter((i) => i.type === 'task')) };
-    S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: i.first || x.date }])));
+    keepEvents(d);
     const uni = d.kinds['大学'] || '#17806a';
     const t0 = isoToday();
     const head = navHead();
@@ -86,7 +108,7 @@
 
   // ---------- 月の画面(帯) ----------
   const MAXROWS = 3;
-  function monthGrid(d, uni, t0) {
+  function monthGrid(d, uni, t0, month = S.smonth) {
     const weeks = [];
     for (let k = 0; k < d.days.length; k += 7) weeks.push(d.days.slice(k, k + 7));
     let html = `<div class="month"><div class="wdh">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="wd">${w}</div>`).join('')}</div>`;
@@ -120,7 +142,7 @@
         return list.map((it) => { let lane = 0; while (used[n][lane]) lane++; used[n][lane] = true; return { ...it, lane }; });
       });
       const row = (lane) => lane + 2;
-      let parts = wk.map((x, n) => `<button class="mcell ${x.date.slice(0, 7) !== S.smonth ? 'out' : ''} ${x.date === t0 ? 'td' : ''}" style="grid-column:${n + 1}" data-sday="${x.date}"><span>${+x.date.slice(8)}</span></button>`).join('');
+      let parts = wk.map((x, n) => `<button class="mcell ${x.date.slice(0, 7) !== month ? 'out' : ''} ${x.date === t0 ? 'td' : ''}" style="grid-column:${n + 1}" data-sday="${x.date}"><span>${+x.date.slice(8)}</span></button>`).join('');
       for (const sp of spans) {
         if (sp.lane >= MAXROWS) continue;
         const i = sp.i;
@@ -270,9 +292,22 @@
 
   document.addEventListener('click', async (e) => {
     const el = e.target.closest('button');
-    if (!el || S.screen !== 'sched') return;
+    if (!el) return;
+    if (S.screen !== 'sched' && !(S.screen === 'top' && el.closest('.topcal, #layer'))) return;
     const d = el.dataset;
     try {
+      if (d.tnav) {
+        S.tmonth = shiftMonth(S.tmonth, +d.tnav);
+        const box = $('#topcal'); if (!box) return;
+        box.classList.add('loading');
+        const nav = box.querySelector('.snav');  // 届くのを待たずに、見出しの月だけ先に変える
+        if (nav) nav.childNodes[1].textContent = `${S.tmonth.slice(0, 4)}年${+S.tmonth.slice(5)}月`;
+        const n = S.tn = (S.tn || 0) + 1;  // 続けて押したら、最後の月だけ出す
+        const html = await topCal();
+        if (n === S.tn && S.screen === 'top') { box.innerHTML = html; box.classList.remove('loading'); }
+        return;
+      }
+      if (d.topensched !== undefined) { S.sv = 'month'; S.smonth = S.tmonth; go('sched'); return; }
       if (d.sv) { S.sv = d.sv; render(); return; }
       if (d.synccheck !== undefined) {
         el.textContent = '確かめています…'; el.disabled = true;

@@ -337,6 +337,7 @@ function dayRows(classes, events, held) {
   return rows.length ? rows.map((r) => r[1]).join('') : '<div class="hint">なし</div>';
 }
 async function topView() {
+  const calP = window.topCal ? topCal().catch(() => '<div class="sec"><div class="hint">予定を読めませんでした</div></div>') : Promise.resolve('');
   const t = await api('GET', '/top');
   S.top = t;
   t.started.forEach((x) => { x.startMark = true; });
@@ -359,7 +360,8 @@ async function topView() {
       ${quickBox('タスクをすばやく足す', null, t.quick_ai)}
       ${nothing ? emptyState(ILL.desk, 'まだタスクがありません', '上の欄に1行で打つか、「授業・会社・開発」の画面から足せます。') : sec('今日', [...t.today_tasks, ...t.started], '今日が締切のタスクはありません') + sec('今週', t.week, '今週が締切のタスクはありません') + sec('締切なし', t.nodue, 'なし')}</div>
       <aside class="rcol"><div class="sec"><div class="sh">今日の時間</div>${dayRows(t.classes_today, t.events_today, t.held_today)}</div><div class="sec"><div class="sh">明日の時間</div>${dayRows(t.classes_tomorrow, t.events_tomorrow, t.held_tomorrow)}</div>
-      ${t.calendar_on ? '' : '<div class="hint" style="padding:10px 0">Google カレンダーは、設定の「Google」で許可するとここに混ざります。</div>'}</aside></div>`;
+      ${t.calendar_on ? '' : '<div class="hint" style="padding:10px 0">Google カレンダーは、設定の「Google」で許可するとここに混ざります。</div>'}</aside></div>
+    <div class="topcal-wrap" id="topcal">${await calP}</div>`;
 }
 async function addTaskFromTop() {
   const ov = await api('GET', '/containers');
