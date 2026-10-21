@@ -204,6 +204,25 @@ CREATE TABLE IF NOT EXISTS maybe_done (
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     resolved INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY,
+    message_id INTEGER,
+    token TEXT NOT NULL,
+    state TEXT NOT NULL,
+    progress TEXT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_actions (
+    id INTEGER PRIMARY KEY,
+    run_id INTEGER NOT NULL,
+    tool TEXT NOT NULL,
+    args TEXT NOT NULL,
+    preview TEXT,
+    undo TEXT,
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS agent_messages (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,

@@ -108,3 +108,19 @@
 
 .cm{white-space:pre-wrap}
 .cm .ls,.cm .row{white-space:normal}
+
+/* 秘書兼エージェント(F22 1.07):動いている手の積み上げ・やったこと・確認のカード・朝のあいさつ */
+.prog{display:flex;flex-direction:column;gap:1px;color:var(--sub);font-size:12px}
+.prog .past{color:var(--faint)}
+.prog .past::before{content:"✓ ";color:#1e8e3e}
+.prog .now{display:flex;align-items:center;gap:6px}
+.prog .now .dots3{padding:0}
+.did{margin-top:6px;border-left:3px solid #1e8e3e;background:color-mix(in srgb,#1e8e3e 9%,transparent);padding:4px 9px;border-radius:0 6px 6px 0;font-size:12px}
+.did .h,.okcard .h{font-size:11px;font-weight:700}
+.did .h{color:#1e8e3e}
+.did ul{margin:2px 0 3px;padding-left:1.1em}
+.did li.und{color:var(--faint)}
+.okcard{margin-top:6px;border:1px solid var(--amber);background:var(--amber-wash);padding:6px 9px;border-radius:8px;font-size:12px}
+.okcard .h{color:var(--amber)}
+.okcard .row{display:flex;gap:6px;margin-top:5px}
+.cm.greet{background:var(--side);border-radius:10px;padding:7px 10px}

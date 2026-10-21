@@ -54,13 +54,37 @@
   }
 
   // ---------- 描く ----------
+  const dots = '<span class="dots3"><i></i><i></i><i></i></span>';
   function msgHtml(m) {
     if (m.role === '自分') return `<div class="cm me">${esc(m.text)}</div>`;
-    const act = m.action && m.action_state === '待ち'
-      ? `<div class="row"><button class="btn pri sm" data-mok="${m.id}">${esc(m.action.label)}</button><button class="btn sm" data-mno="${m.id}">やめる</button></div>` : '';
-    let detail = '';
-    if (m.action && m.action.tool === 'add_tasks') detail = `<div class="ls">${m.action.args.tasks.map((t) => `<div><span>${esc(t.name)}</span><span>${esc(t.due_date || '締切なし')}</span></div>`).join('')}</div>`;
-    return `<div class="cm ai">${esc(m.text)}${detail}${act}</div>`;
+    const r = m.run;
+    if (r && r.state === '動いている') {  // 終わった手を ✓ で積み上げ、いちばん下に今やっていること(モッチ-3 B)
+      const p = r.progress || [];
+      return `<div class="cm ai"><div class="prog">${p.slice(0, -1).map((x) => `<span class="past">${esc(x)}</span>`).join('')}<span class="now">${dots}${esc(p.length ? p[p.length - 1] + '…' : '考えています…')}</span></div></div>`;
+    }
+    let extra = '';
+    if (r && (r.done.length || r.undone.length)) {
+      extra += `<div class="did"><div class="h">やったこと</div><ul>${r.done.map((x) => `<li>${esc(x)}</li>`).join('')}${r.undone.map((x) => `<li class="und">${esc(x)}(元に戻した)</li>`).join('')}</ul>${r.undoable ? `<button class="link" data-mundo="${r.id}">元に戻す</button>` : ''}</div>`;
+    }
+    if (r && r.pending.length) {
+      extra += r.pending.map((a) => `<div class="okcard"><div class="h">やっていい?</div><div>${esc(a.preview)}</div><div class="row"><button class="btn pri sm" data-mok="${a.id}">する</button><button class="btn sm" data-mno="${a.id}">やめる</button></div></div>`).join('');
+    }
+    return `<div class="cm ai ${m.state === 'あいさつ' ? 'greet' : ''}">${esc(m.text).replace(/\n/g, '<br>')}${extra}</div>`;
+  }
+  const running = () => M.log.some((m) => m.run && m.run.state === '動いている');
+  let polling = false;
+  async function poll() {
+    if (polling) return;
+    polling = true;
+    while (running()) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try { M.log = await call('GET', '/agent/messages'); } catch (e) { break; }
+      M.busy = running(); render();
+    }
+    polling = false;
+    M.busy = false; M.justSaid = true; render();
+    setTimeout(() => { M.justSaid = false; render(); }, 1600);
+    if (window.render) window.render();  // モッチが変えたものを画面にも出す
   }
   function render() {
     const host = q('#agent');
@@ -68,8 +92,8 @@
     const had = q('#agin'), val = had ? had.value : '', foc = had && document.activeElement === had;
     const side = M.open && M.mode === 'side';
     const talk = !!M.bub || M.busy || M.justSaid;
-    const logH = (M.log.length ? '' : '<div class="cm ai">なにか手伝う? タスクのこと、この画面の使い方、なんでも聞いてね。<div class="src">足す・変える・消すときは、先に確認するよ</div></div>') +
-      M.log.map(msgHtml).join('') + (M.busy ? '<div class="cm ai wait"><span class="dots3"><i></i><i></i><i></i></span></div>' : '');
+    const logH = (M.log.length ? '' : '<div class="cm ai">なにか手伝う? 頼まれたら、調べて、やって、終わったら報告するよ。<div class="src">消す・予定を足すときは、先に確認するよ。やったことは元に戻せるよ</div></div>') +
+      M.log.map(msgHtml).join('') + (M.busy && !running() ? `<div class="cm ai wait">${dots}</div>` : '');
     const sugH = `<div class="csug">${suggestions().map((x) => `<button data-mq="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
     const inH = '<div class="cin"><input id="agin" placeholder="モッチに話しかける" autocomplete="off" aria-label="モッチに話しかける"><button class="send" data-msend aria-label="送る"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg></button></div>';
     const newB = M.log.length ? '<button data-mnew>新しく話す</button>' : '';
@@ -93,18 +117,26 @@
   // ---------- 話す ----------
   async function ask(text) {
     text = (text || '').trim();
-    if (!text || M.busy) return;
+    if (!text || M.busy || running()) return;
     M.log.push({ role: '自分', text, id: -1 });
-    M.busy = true; render();
+    M.busy = true; M.wantFocus = true; render();
     try { M.log = await call('POST', '/agent/ask', { text, screen: screenName() }); }
-    catch (e) { M.log.push({ role: 'モッチ', text: e.message, id: -2 }); }
-    M.busy = false; M.justSaid = true; M.wantFocus = true; render();
-    setTimeout(() => { M.justSaid = false; render(); }, 1600);
+    catch (e) { M.log.push({ role: 'モッチ', text: e.message, id: -2 }); M.busy = false; render(); return; }
+    render();
+    poll();
   }
   async function action(id, what) {
     try { M.log = await call('POST', `/agent/actions/${id}/${what}`); } catch (e) { M.log.push({ role: 'モッチ', text: e.message, id: -3 }); }
     render();
     if (what === 'confirm' && window.render) window.render();
+  }
+  async function undo(runId) {
+    try { M.log = await call('POST', `/agent/runs/${runId}/undo`); } catch (e) { M.log.push({ role: 'モッチ', text: e.message, id: -4 }); }
+    render();
+    if (window.render) window.render();
+  }
+  async function greet() {  // その日最初に開いたときだけ、今日の段取りを短く話す(S7-7)
+    try { M.log = await call('POST', '/agent/greeting'); render(); } catch (e) { /* 本体が止まっているとき */ }
   }
 
   // ---------- 押したとき ----------
@@ -115,8 +147,11 @@
     const d = el.dataset;
     if (d.mopen !== undefined) {
       if (M.dragged) return;
-      M.open = !M.open; M.bub = null; M.wantFocus = M.open; render(); return;
+      M.open = !M.open; M.bub = null; M.wantFocus = M.open; render();
+      if (M.open) greet();
+      return;
     }
+    if (d.mundo) { undo(d.mundo); return; }
     if (d.mq) { ask(d.mq); return; }
     if (d.msend !== undefined) { const i = q('#agin'); const v = i.value; i.value = ''; M.wantFocus = true; ask(v); return; }
     if (d.mok) { action(d.mok, 'confirm'); return; }
@@ -231,6 +266,7 @@
       M.log = await call('GET', '/agent/messages');
     } catch (e) { /* 本体が止まっているとき */ }
     loadPos(); render();
+    if (running()) { M.busy = true; poll(); }  // 開き直したとき、まだ動いている頼みがあれば続きを待つ
     setTimeout(checkHint, 3500);
     setInterval(checkHint, 10 * 60 * 1000);
   })();

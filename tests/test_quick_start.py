@@ -171,16 +171,15 @@ def test_repeat_carries_start_date(db_path):
         assert (n["due_date"], n["start_date"]) == ("2026-11-03", "2026-10-31")
 
 
-def test_mochi_can_set_start_date(db_path):
-    db.init(db_path)
+def test_mochi_can_set_start_date(client, db_path):
+    import tasks
+    cid = client.post("/api/containers", json={"name": "卒論", "kind_id": 3}).get_json()["id"]
+    tid = client.post("/api/tasks", json={"container_id": cid, "name": "原稿", "due_date": "2026-11-30"}).get_json()["id"]
+
+    def runner(system, prompt, env):
+        client.post("/api/agent/tool", json={"run": env["DANDORI_RUN"], "token": env["DANDORI_TOKEN"], "tool": "task_update",
+                                             "args": {"task_id": tid, "start_date": "2026-11-01"}})
+        return "着手日をつけたよ"
+    agent.ask(db_path, "原稿は11/1から始める", "トップ", "http://localhost", runner=runner, wait=True, app=client.application)
     with db.session(db_path) as con:
-        import containers
-        import tasks
-        kid = con.execute("SELECT id FROM kinds WHERE name = '開発'").fetchone()[0]
-        cid = containers.add_container(con, "卒論", kid)
-        tid = tasks.add(con, {"container_id": cid, "name": "原稿", "due_date": "2026-11-30"})
-        assert any(t["start_date"] is None for t in agent.context(con, "トップ")["open_tasks"])
-        runner = lambda s, p: {"reply": "着手日をつけるね", "action": {"tool": "update_task", "args": {"task_id": tid, "start_date": "2026-11-01"}, "label": "着手日をつける"}}
-        mid = agent.ask(con, "原稿は11/1から始める", "トップ", runner=runner)
-        agent.confirm(con, mid)
         assert tasks.get(con, tid)["start_date"] == "2026-11-01"
