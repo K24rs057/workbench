@@ -137,7 +137,8 @@ def notices_list():
                 item["sender"] = m["sender"] if m else ""
             out.append(item)
         baito = [dict(b) for b in c.execute("SELECT id, name FROM baito_places ORDER BY name")]
-        return jsonify(notices=out, options=[dict(o) for o in opts], baito=baito)
+        import winsort
+        return jsonify(notices=out, options=[dict(o) for o in opts], baito=baito, ai=winsort.unseen(c))
 
 
 @bp.post("/notices/<int:nid>/answer")
@@ -184,6 +185,20 @@ def rules_update(rid):
             if not (b["pattern"] or "").strip():
                 raise UserError("覚える文字を入れてください")
             c.execute("UPDATE window_rules SET pattern = ? WHERE id = ?", (b["pattern"].strip(), rid))
+        if b.get("ignore"):  # 選び直し(AI が仕分けた一覧・Q38)。直したら、もう Claude が決めたものではない
+            c.execute("UPDATE window_rules SET ignore = 1, container_id = NULL, by_ai = 0 WHERE id = ?", (rid,))
+        elif "container_id" in b:
+            if not c.execute("SELECT 1 FROM containers WHERE id = ? AND ended = 0", (b["container_id"],)).fetchone():
+                raise UserError("その授業・会社・開発はありません")
+            c.execute("UPDATE window_rules SET ignore = 0, container_id = ?, by_ai = 0 WHERE id = ?", (int(b["container_id"]), rid))
+        return jsonify(ok=True)
+
+
+@bp.post("/window-rules/ai-seen")
+def rules_ai_seen():
+    """AI が仕分けた窓のお知らせを見た(Q38)。"""
+    with con() as c:
+        c.execute("UPDATE window_rules SET ai_seen = 1 WHERE by_ai = 1 AND ai_seen = 0")
         return jsonify(ok=True)
 
 

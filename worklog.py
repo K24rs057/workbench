@@ -2,7 +2,7 @@
 
 1分ごとに、前に出ているアプリの窓の名前だけを読む(画面の中身は見ない)。
 覚えた決まり(window_rules)で入れ物を決め、同じ入れ物が続くあいだを1つの記録にする。
-初めて見た窓は「確認してほしいこと」で聞き、答えたら窓の名前そのものは消す。
+初めて見た窓は pending_windows にためて、まず Claude が仕分ける(winsort.py・Q38)。分からないものだけ「確認してほしいこと」で聞き、答えたら窓の名前そのものは消す。
 """
 import ctypes
 import re
@@ -139,8 +139,8 @@ def _ask_window(con, app, key, now):
     title = f"{app}|{key}"
     if con.execute("SELECT 1 FROM pending_windows WHERE title = ?", (title,)).fetchone():
         return
-    pid = con.execute("INSERT INTO pending_windows(title, first_seen) VALUES (?, ?)", (title, now.isoformat(timespec="seconds"))).lastrowid
-    con.execute("INSERT INTO notices(kind, body, pending_window_id) VALUES ('window', ?, ?)", (f"{app} で開いている「{key}」は、どの授業・会社・開発の作業ですか?", pid))
+    # すぐには聞かない。5分ごとに Claude がまとめて仕分け、分からないものだけ聞く(Q38)
+    con.execute("INSERT INTO pending_windows(title, first_seen) VALUES (?, ?)", (title, now.isoformat(timespec="seconds")))
 
 
 def tick(con, sample, now=None):

@@ -242,8 +242,9 @@ async function insideView() {
 
 async function rulesSection() {
   const rules = await api('GET', '/window-rules');
-  const rows = rules.map((r) => `<div class="krow" style="grid-template-columns:90px minmax(0,1fr) minmax(0,1fr) auto"><span class="hint">${esc(r.app)}</span><input class="nmin" value="${esc(r.pattern)}" data-rpat="${r.id}" aria-label="覚える文字"><span>${r.ignore ? '記録しない' : esc(r.container || '')}</span><button class="link danger" data-rdel="${r.id}">消す</button></div>`).join('');
-  return `<div class="sset"><h3>作業記録</h3><div class="hint" style="margin-bottom:6px">覚えた窓の名前と、どれの作業かの組み合わせです。覚える文字は直せます。消すと、次に見たときにまた聞きます。</div>${rows || '<div class="hint">まだありません。</div>'}</div>`;
+  const ai = (r) => (r.by_ai ? ` <span class="mk mk-ai" title="AI が決めました(${esc((r.ai_at || '').slice(5, 10).replace('-', '/'))})">AI ${esc((r.ai_at || '').slice(5, 10).replace('-', '/'))}</span>` : '');
+  const rows = rules.map((r) => `<div class="krow" style="grid-template-columns:90px minmax(0,1fr) minmax(0,1fr) auto"><span class="hint">${esc(r.app)}</span><input class="nmin" value="${esc(r.pattern)}" data-rpat="${r.id}" aria-label="覚える文字"><span>${r.ignore ? '記録しない' : esc(r.container || '')}${ai(r)}</span><button class="link danger" data-rdel="${r.id}">消す</button></div>`).join('');
+  return `<div class="sset"><h3>作業記録</h3><div class="hint" style="margin-bottom:6px">覚えた窓の名前と、どれの作業かの組み合わせです。「AI」の印は、AI が決めたものです(日付は決めた日)。覚える文字は直せます。消すと、次に見たときにまた仕分けます。</div>${rows || '<div class="hint">まだありません。</div>'}</div>`;
 }
 async function statusSection() {
   const st = await api('GET', '/status');
@@ -374,35 +375,76 @@ async function addTaskFromTop() {
 }
 
 
+// 「確認してほしいこと」を、種類ごとに1行ずつ並べる(2026-10-21 本人の依頼:1件の箱が大きい)
+const ASK_GROUPS = {
+  window: ['どれの作業?', '初めて見た窓です。一度答えれば、次からは聞きません。[文字] で、覚える文字を変えられます'],
+  ブリーフの締切: ['ブリーフが見つけた締切', 'タスクにするときは、どの授業・会社・開発のものかを選んでください'],
+  候補日: ['候補日', '相手に返事をして決まったら、その日を押すと予定に入ります'],
+  バイト先の質問: ['どのバイト先?', '応募サイトの中継アドレスから来たメールです。一度答えれば、次からは聞きません'],
+  自動で完了: ['自動で完了にしたタスク', 'ちがうときは [戻す] で未完了に戻せます'],
+};
+function askRow(n, d) {
+  const opts = (sel) => `<select id="${sel}" aria-label="どれの"><option value="">選ぶ…</option>${d.options.map((o) => `<option value="${o.id}">${esc(o.kind)}:${esc(o.name)}</option>`).join('')}</select>`;
+  const row = (q, a, more = '') => `<div class="ask"><div class="aq">${q}</div><div class="aa">${a}</div>${more}</div>`;
+  if (n.kind === 'window') {
+    const m = /^(.+?) で開いている「(.*)」は/.exec(n.body || '');
+    const [app, title] = m ? [m[1], m[2]] : ['', n.body];
+    return row(`<b title="${esc(title)}">${esc(title)}</b><span>${esc(app)}</span>`,
+      `${opts('sel' + n.id)}<button class="btn sm pri" data-ans="${n.id}">これにする</button><button class="btn sm" data-ansno="${n.id}">記録しない</button><button class="link" data-apat="${n.id}" aria-expanded="false">文字</button>`,
+      `<div class="apat" id="apw${n.id}" hidden><span>覚える文字</span><input id="pat${n.id}" value="${esc(n.pattern)}"><span class="hint">窓の名前にこの文字が入っていたら、同じ答えにします。短くすると広く当てはまります(例:「情報科学演習」)</span></div>`);
+  }
+  if (n.kind === 'ブリーフの締切') {
+    const x = n.data;
+    return row(`<b title="${esc(x.title)}">${esc(x.title)}</b><span>${esc(x.date.slice(5).replace('-', '/'))}${x.time ? ' ' + esc(x.time) : ''}まで${x.source ? ' ・ ' + esc(x.source) : ''}</span>`,
+      `${opts('bfc' + n.id)}<button class="btn sm pri" data-bfok="${n.id}">タスクにする</button><button class="btn sm" data-bfno="${n.id}">いらない</button>`);
+  }
+  if (n.kind === '候補日') {
+    return row(`<b title="${esc(n.data.text)}">${esc(n.data.text)}</b>`,
+      `${n.data.dates.map((x, i) => `<button class="btn sm" data-cand="${n.id}" data-ci="${i}">${esc(x.date.slice(5).replace('-', '/'))}(${WEEK[new Date(x.date + 'T00:00').getDay()]}) ${esc(x.start || '')}${x.end ? '〜' + esc(x.end) : ''}</button>`).join('')}<button class="btn sm" data-candno="${n.id}">どれも入れない</button>`);
+  }
+  if (n.kind === 'バイト先の質問') {
+    return row(`<b title="${esc(n.body)}">${esc(n.body)}</b><span>${esc(n.sender || '')}</span>`,
+      `<select id="bsel${n.id}" aria-label="バイト先"><option value="">新しいバイト先</option>${(d.baito || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select><input id="bnew${n.id}" placeholder="新しいときは名前" aria-label="新しいバイト先の名前"><button class="btn sm pri" data-bans="${n.id}">これにする</button>`);
+  }
+  if (n.kind === '自動で完了') {
+    return row(`<b title="${esc(n.body)}">${esc(n.body)}</b>`, `<button class="btn sm" data-nok="${n.id}">わかった</button><button class="btn sm" data-undo="${n.task_id}">戻す</button>`);
+  }
+  return row(`<b>${esc(n.body)}</b>`, '');
+}
+// AI が仕分けた窓のお知らせ(Q38):1行だけ出し、[見る] で一覧
+function aiNotice(ai) {
+  if (!ai || !ai.length) return '';
+  return `<div class="askg"><div class="ask aiask"><div class="aq"><b>AI が窓を ${ai.length}件 仕分けました</b><span>どれに入れたか・記録しないにしたかを見て、ちがうものだけ直せます</span></div><div class="aa"><button class="btn sm pri" data-aisee>見る</button></div></div></div>`;
+}
+function aiListHtml(ai, d) {
+  const sel = (r) => `<select data-airule="${r.id}" aria-label="どれの作業"><option value="ignore" ${r.ignore ? 'selected' : ''}>記録しない</option>${d.options.map((o) => `<option value="${o.id}" ${r.container_id === o.id ? 'selected' : ''}>${esc(o.kind)}:${esc(o.name)}</option>`).join('')}</select>`;
+  return `<h3>AI が仕分けた窓 ${ai.length}件</h3><div class="hint" style="margin-bottom:6px">ちがうものは、右で選び直すとすぐ直ります。このお知らせは、開いたので消えます。あとから見るときは、設定の「作業記録」で見られます</div>
+    <div class="ailist">${ai.map((r) => `<div class="ask"><div class="aq"><b title="${esc(r.pattern)}">${esc(r.pattern)}</b><span>${esc(r.app)}</span></div><div class="aa">${sel(r)}</div></div>`).join('')}</div>
+    <div class="acts"><button class="btn pri" data-close>閉じる</button></div>`;
+}
+function askList(d) {
+  const groups = [];  // 種類ごとに、はじめに出てきた順で並べる
+  for (const n of d.notices) {
+    let g = groups.find((x) => x.kind === n.kind);
+    if (!g) groups.push(g = { kind: n.kind, items: [] });
+    g.items.push(n);
+  }
+  return groups.map((g) => {
+    const [head, why] = ASK_GROUPS[g.kind] || ['お知らせ', ''];
+    return `<div class="askg"><div class="gh"><b>${head}</b><span class="n">${g.items.length}</span><span>${why}</span></div>${g.items.map((n) => askRow(n, d)).join('')}</div>`;
+  }).join('');
+}
+
 async function mailViewOld() {
   const d = await api('GET', '/notices');
   S.notices = d;
-  const opts = d.options.map((o) => `<option value="${o.id}">${esc(o.kind)}:${esc(o.name)}</option>`).join('');
-  const card = (n) => n.kind === 'window'
-    ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">初めて見た窓の名前です。一度答えれば、次からは聞きません</div>
-       <div class="field"><span>覚える文字</span><input id="pat${n.id}" value="${esc(n.pattern)}"></div>
-       <div class="hint">窓の名前にこの文字が入っていたら、同じ答えにします。短くすると、広く当てはまります(例:「情報科学演習」)</div>
-       <div class="rowb"><select id="sel${n.id}"><option value="">どれの作業?</option>${opts}</select><button class="btn sm pri" data-ans="${n.id}">これにする</button><button class="btn sm" data-ansno="${n.id}">記録しない</button></div></div>`
-    : n.kind === 'バイト先の質問'
-    ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">差出人 ${esc(n.sender || '')}。応募サイトの中継アドレスです。一度答えれば、次からは聞きません</div>
-       <div class="rowb"><select id="bsel${n.id}"><option value="">新しいバイト先</option>${(d.baito || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select>
-       <input class="nmin" style="border-color:var(--line2)" id="bnew${n.id}" placeholder="新しいときは名前(○○カフェ)"><button class="btn sm pri" data-bans="${n.id}">これにする</button></div></div>`
-    : n.kind === '候補日'
-    ? `<div class="qcard"><b>${esc(n.data.text)}</b><div class="s">Claude が読み取った候補日です。相手に返事をして決まったら、その日を押すと予定に入ります</div>
-       <div class="rowb">${n.data.dates.map((x, i) => `<button class="btn sm" data-cand="${n.id}" data-ci="${i}">${esc(x.date.slice(5).replace('-', '/'))}(${WEEK[new Date(x.date + 'T00:00').getDay()]}) ${esc(x.start || '')}${x.end ? '〜' + esc(x.end) : ''}</button>`).join('')}
-       <button class="btn sm" data-candno="${n.id}">どれも入れない</button></div></div>`
-    : n.kind === 'ブリーフの締切'
-    ? `<div class="qcard"><b>${esc(n.data.title)}(${esc(n.data.date.slice(5).replace('-', '/'))}${n.data.time ? ' ' + esc(n.data.time) : ''}まで)</b><div class="s">モーニングブリーフが見つけた締切です${n.data.source ? `(${esc(n.data.source)})` : ''}。タスクにするときは、どの授業・会社・開発のものかを選んでください</div>
-       <div class="rowb"><select id="bfc${n.id}"><option value="">選ぶ…</option>${d.options.map((o) => `<option value="${o.id}">${esc(o.kind)}:${esc(o.name)}</option>`).join('')}</select><button class="btn sm pri" data-bfok="${n.id}">タスクにする</button><button class="btn sm" data-bfno="${n.id}">いらない</button></div></div>`
-    : n.kind === '自動で完了'
-    ? `<div class="qcard"><b>${esc(n.body)}</b><div class="s">ちがうときは、「自動で完了」の欄の [戻す] で未完了に戻せます</div><div class="rowb"><button class="btn sm" data-nok="${n.id}">わかった</button><button class="btn sm" data-undo="${n.task_id}">戻す</button></div></div>`
-    : `<div class="qcard"><b>${esc(n.body)}</b></div>`;
-  const cats = [['asks', '確認してほしいこと', d.notices.length], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
+  const cats = [['asks', '確認してほしいこと', d.notices.length + (d.ai.length ? 1 : 0)], ['mails', 'メール', ''], ['auto', '自動で完了', '']];
   const left = `<div class="cats">${cats.map(([k, n, c]) => `<button class="cat ${(S.mcat || 'mails') === k ? 'on' : ''} ${k === 'auto' ? 'sep' : ''}" data-mcat="${k}"><span>${n}</span><span>${c || ''}</span></button>`).join('')}</div>`;
+  const all = d.notices.length + (d.ai.length ? 1 : 0);
   return bar('連絡') + `<div class="cbody">${left}<div class="list" style="grid-column:2/-1"><div class="col">
-    <div class="sec"><div class="sh">確認してほしいこと <span class="n">${d.notices.length}</span></div>
-    ${d.notices.length ? d.notices.map(card).join('') : '<div class="hint">今はありません。</div>'}</div>
-    <div class="sec"><div class="hint">ここは、段取りさんが自分だけでは決められないことを聞く場所です。メールではなく、段取りさんからの質問とお知らせが入ります。</div></div></div></div></div>`;
+    <div class="sec" style="border-bottom:0"><div class="sh">確認してほしいこと <span class="n">${all}</span></div>
+    ${all ? aiNotice(d.ai) + askList(d) : '<div class="hint">今はありません。</div>'}</div>
+    <div class="sec"><div class="hint">ここは、段取りさんが自分だけでは決められないことを聞く場所です。メールではなく、段取りさんからの質問とお知らせが入ります。初めて見た窓は、まず AI が仕分けて、分からないものだけをここで聞きます。</div></div></div></div></div>`;
 }
 async function maybeModal() {
   const list = await api('GET', '/maybe-done');
@@ -539,6 +581,14 @@ document.addEventListener('click', async (e) => {
     if (d.mcat) { S.mcat = d.mcat; S.mail = null; S.autoBefore = null; render(); return; }
     if (d.automore) { S.autoBefore = d.automore; render(); return; }
     if (d.undo) { await api('POST', `/auto-done/${d.undo}/undo`); toast('未完了に戻しました'); render(); return; }
+    if (d.apat) { const w = $('#apw' + d.apat); if (w) { w.hidden = !w.hidden; el.setAttribute('aria-expanded', String(!w.hidden)); } return; }
+    if (d.aisee !== undefined) {  // 開いたらお知らせは消える(Q38)
+      const ai = (S.notices && S.notices.ai) || [];
+      modal(aiListHtml(ai, S.notices));
+      await api('POST', '/window-rules/ai-seen');
+      render();  // 後ろの画面からお知らせの行を消す(小窓は開いたまま)
+      return;
+    }
     if (d.bfok) { const v = $(`#bfc${d.bfok}`).value; await api('POST', `/notices/${d.bfok}/answer`, { container_id: v ? +v : null }); toast('タスクにしました'); render(); return; }
     if (d.bfno) { await api('POST', `/notices/${d.bfno}/answer`, { none: true }); render(); return; }
     if (d.nok) { await api('POST', `/notices/${d.nok}/answer`, {}); render(); return; }
@@ -687,6 +737,12 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('change', async (e) => {
   const t = e.target;
   try {
+    if (t.dataset.airule) {  // AI が仕分けた窓の選び直し(Q38)
+      const v = t.value;
+      await api('PATCH', `/window-rules/${t.dataset.airule}`, v === 'ignore' ? { ignore: true } : { container_id: +v });
+      toast(v === 'ignore' ? '記録しないに直しました' : '直しました');
+      return;
+    }
     if (t.dataset.rpat) { await api('PATCH', `/window-rules/${t.dataset.rpat}`, { pattern: t.value }); toast('覚える文字を直しました'); }
     if (t.dataset.kname) { await api('PATCH', `/kinds/${t.dataset.kname}`, { name: t.value }); S.kinds = null; toast('種類の名前を変えました'); }
     if (t.dataset.btname) { await api('PATCH', `/baito/${t.dataset.btname}`, { name: t.value }); toast('直しました'); }

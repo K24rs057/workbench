@@ -33,6 +33,7 @@ def messages_summary():
             c.execute("UPDATE messages SET seen = 1 WHERE seen = 0")
             autodone.mark_seen(c)
         asks = c.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
+        asks += 1 if c.execute("SELECT 1 FROM window_rules WHERE by_ai = 1 AND ai_seen = 0").fetchone() else 0  # AI の仕分けのお知らせ(Q38)
         auto = len(autodone.archive(c, limit=99))
         err = " / ".join(e for e in (mails.setting(c, "outlook_error"), mails.setting(c, "gmail_error")) if e) or None
         return jsonify(new=new, asks=asks, auto=auto, error=err)

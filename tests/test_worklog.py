@@ -40,7 +40,10 @@ def test_first_window_is_asked_then_remembered_and_title_is_forgotten(db_path):
     fx = setup(db_path)
     with db.session(db_path) as con:
         assert worklog.tick(con, VS, T0) is None
-        worklog.tick(con, VS, T0 + timedelta(minutes=1))  # 同じ質問は1回だけ
+        worklog.tick(con, VS, T0 + timedelta(minutes=1))  # 同じ窓は1回だけためる
+        assert con.execute("SELECT COUNT(*) FROM notices").fetchone()[0] == 0  # すぐには聞かない。まず AI が仕分ける(Q38)
+        import winsort
+        winsort.run(con, runner=lambda s, p: {"items": []}, now=T0 + timedelta(minutes=2))  # AI が分からなかった → 聞く
         ns = con.execute("SELECT * FROM notices").fetchall()
         assert len(ns) == 1 and "fx-practice" in ns[0]["body"]
         worklog.answer_window(con, ns[0]["id"], container_id=fx)

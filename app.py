@@ -116,6 +116,12 @@ def run_jobs_once(db_path):
             worklog.tick(con, worklog.foreground())
     except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
         _log_error(db_path, "作業記録", e)
+    try:  # 初めて見た窓を Claude が仕分ける。5分ごと(winsort.run の中で間を数える。Q38)
+        import winsort
+        with db.session(db_path) as con:
+            winsort.run(con)
+    except Exception as e:
+        _log_error(db_path, "窓の仕分け", e)
     try:  # 作業記録が失敗しても、通知は出す
         with db.session(db_path) as con:
             notify.check(con)

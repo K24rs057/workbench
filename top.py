@@ -111,6 +111,7 @@ def build(con, today=None):
         notices.append({"kind": "error", "text": "時間割を読めませんでした。前に読んだ時間割を使っています"})
     import worklog
     waiting = con.execute("SELECT COUNT(*) FROM notices WHERE answered = 0").fetchone()[0]
+    waiting += 1 if con.execute("SELECT 1 FROM window_rules WHERE by_ai = 1 AND ai_seen = 0").fetchone() else 0  # AI の仕分けのお知らせ(Q38)
     if waiting:
         notices.append({"kind": "ask", "text": f"確認してほしいこと {waiting}件", "count": waiting})
     new_mail = con.execute("SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN ('Forms', '提出受付')").fetchone()[0]

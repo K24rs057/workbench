@@ -89,12 +89,16 @@ CREATE TABLE IF NOT EXISTS window_rules (
     app TEXT NOT NULL,
     pattern TEXT NOT NULL,
     container_id INTEGER,
-    ignore INTEGER NOT NULL DEFAULT 0
+    ignore INTEGER NOT NULL DEFAULT 0,
+    by_ai INTEGER NOT NULL DEFAULT 0,
+    ai_at TEXT,
+    ai_seen INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS pending_windows (
     id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
-    first_seen TEXT NOT NULL
+    first_seen TEXT NOT NULL,
+    ai_tried INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS links (
     id INTEGER PRIMARY KEY,
@@ -242,6 +246,22 @@ BUILTIN_KINDS = [
 ]
 
 
+# あとから足した列。前からある data/ の DB には、起動時に足りない列だけ足す
+ADDED_COLUMNS = [
+    ("window_rules", "by_ai", "INTEGER NOT NULL DEFAULT 0"),      # 基本設計 1.06 Q38
+    ("window_rules", "ai_at", "TEXT"),
+    ("window_rules", "ai_seen", "INTEGER NOT NULL DEFAULT 1"),    # 前からの決まりは、お知らせに出さない
+    ("pending_windows", "ai_tried", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
+def _add_columns(con):
+    for table, col, decl in ADDED_COLUMNS:
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in have:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 def connect(path=None):
     path = Path(path or DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,6 +289,7 @@ def init(path=None):
     """表を作り、初めの種類と「未分類」の入れ物を1回だけ入れる。"""
     with session(path) as con:
         con.executescript(SCHEMA)
+        _add_columns(con)
         if con.execute("SELECT COUNT(*) FROM kinds").fetchone()[0] == 0:
             con.executemany(
                 "INSERT INTO kinds(name, color, sort_first, notify_untouched, builtin) VALUES (?, ?, ?, ?, 1)",
