@@ -274,6 +274,17 @@ async function mailSection() {
     <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div>
     <div class="kv"><span>カレンダー</span><span>${g.calendar ? '許可済み(予定の読み書き)' : g.state === '許可済み' ? 'まだ許可していません。上の [許可し直す] を押して、カレンダーの予定の表示と編集も許可してください' : 'Gmail と一緒に許可します'}</span></div></div>`;
 }
+async function sitesSection() {
+  const d = await api('GET', '/sites');
+  const rows = d.sites.map((x) => `<div class="krow" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto auto auto"><b>${esc(x.name)}</b><span class="hint" style="overflow-wrap:anywhere">${esc(x.url)}</span>
+    <span class="hint">${x.login === 'auto' ? 'パスワードで自動' : '手でログイン'}</span><button class="btn sm" data-sitewin="${esc(x.name)}">専用の窓で開く</button><button class="link danger" data-sitedel="${esc(x.name)}">外す</button></div>`).join('');
+  return `<div class="sset"><h3>サイト(モッチが開けるサイト)</h3>${rows || '<div class="hint">まだありません。</div>'}
+    <div class="krow" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto auto"><input class="nmin" id="sitename" placeholder="名前(K'sLife など)" style="border-color:var(--line2)"><input class="nmin" id="siteurl" placeholder="https://…" style="border-color:var(--line2)">
+    <select id="sitelogin"><option value="manual">手でログイン</option><option value="auto">パスワードで自動(K'sLife だけ)</option></select><button class="btn sm" data-siteadd>足す</button></div>
+    <div class="hint" style="margin:4px 0 0">モッチが開けるのは、ここに登録したサイトだけです。使う前に、そのサイトの利用規約で自動での利用が禁止されていないかを確かめてください。
+    「手でログイン」のサイトは [専用の窓で開く] で、段取りさん専用の Chrome の窓にご自分でログインしておくと、モッチがその窓を使って読みます。
+    「パスワードで自動」は K'sLife の1つだけです。ID とパスワードは、段取りさんのフォルダの .env に KSLIFE_ID と KSLIFE_PASSWORD としてご自分で書いてください(${d.kslife_env ? '入っています' : 'まだ入っていません'})。パスワードはモッチには見せません。</div></div>`;
+}
 function mochiSection() {
   const st = window.Mochi ? Mochi.settings() : {};
   const sw = (key, label, aria) => `<span class="tg"><button class="sw ${st[key] === '0' ? '' : 'on'}" data-msw="${key}" aria-label="${aria}"></button>${label}</span>`;
@@ -296,6 +307,7 @@ async function setView() {
     ${await rulesSection()}
     ${await statusSection()}
     ${await mailSection()}
+    ${await sitesSection()}
     ${mochiSection()}</div>`;
 }
 
@@ -564,6 +576,9 @@ document.addEventListener('click', async (e) => {
     if (d.cand !== undefined && d.ci !== undefined) { await api('POST', `/notices/${d.cand}/answer`, { index: +d.ci }); toast('予定に入れました'); render(); return; }
     if (d.candno) { await api('POST', `/notices/${d.candno}/answer`, { none: true }); toast('入れずに閉じました'); render(); return; }
     if (d.hdel) { await api('DELETE', `/held-events/${d.hdel}`); toast('消しました。次に読んでも戻しません'); render(); return; }
+    if (d.siteadd !== undefined) { await api('POST', '/sites', { name: $('#sitename').value, url: $('#siteurl').value, login: $('#sitelogin').value }); toast('足しました'); render(); return; }
+    if (d.sitedel) { if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに外す'; return; } await api('DELETE', `/sites/${encodeURIComponent(d.sitedel)}`); toast('外しました'); render(); return; }
+    if (d.sitewin) { toast('専用の窓を開いています…'); await api('POST', '/sites/window', { name: d.sitewin }); toast('専用の窓で開きました。ログインしたら、その窓はそのままにしておいてください'); return; }
     if (d.shsave !== undefined) { await api('PATCH', '/settings/mail', { shift_name: $('#shname').value }); toast('保存しました'); render(); return; }
     if (d.domsave !== undefined) { await api('PATCH', '/settings/mail', { university_domain: $('#udom').value }); toast('保存しました。次の読み込みから使います'); render(); return; }
     if (d.gauge !== undefined) { S.gOpen = !S.gOpen; render(); return; }

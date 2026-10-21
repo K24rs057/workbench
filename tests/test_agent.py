@@ -1,4 +1,4 @@
-"""モッチ(F22 1.07・Q31〜Q37)。秘書兼 AI エージェント。claude -p は呼ばず、作り物の「モッチ」が道具箱を呼ぶ。"""
+﻿"""モッチ(F22 1.07・Q31〜Q37)。秘書兼 AI エージェント。claude -p は呼ばず、作り物の「モッチ」が道具箱を呼ぶ。"""
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -49,7 +49,7 @@ def test_tools_run_and_report_and_undo(client, db_path):
     m = last_mochi(client)
     assert m["text"] == "着手日を入れたよ" and m["run"]["state"] == "終わり"
     assert m["run"]["progress"] == ["タスクを探しています", "予定を見ています", "タスクを直しています"]  # 動いた手が積み上がる
-    assert m["run"]["done"] == ["タスク「中間発表のスライド」を直した(start_date)"] and m["run"]["undoable"]
+    assert m["run"]["done"] == ["タスク「中間発表のスライド」を直した(着手日)"] and m["run"]["undoable"]
     with db.session(db_path) as con:
         assert con.execute("SELECT start_date FROM tasks WHERE id = ?", (tid,)).fetchone()[0] == "2026-10-19"
     client.post(f"/api/agent/runs/{m['run']['id']}/undo")

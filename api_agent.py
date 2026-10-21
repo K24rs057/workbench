@@ -86,6 +86,51 @@ def agent_greeting():
         return jsonify(agent.messages(c))
 
 
+# ---------- モッチが開けるサイト(設定の「サイト」。規程 第6条・第11条) ----------
+@bp.get("/sites")
+def sites_list():
+    import sitebrowser
+    with con() as c:
+        uid, pw = sitebrowser.credentials()
+        return jsonify(sites=sitebrowser.sites(c), kslife_env=bool(uid and pw))  # パスワードそのものは返さない
+
+
+@bp.post("/sites")
+def sites_add():
+    import sitebrowser
+    b = body()
+    with con() as c:
+        try:
+            sitebrowser.add_site(c, b.get("name"), b.get("url"), b.get("login") or "manual", b.get("login_host"))
+        except sitebrowser.SiteError as e:
+            raise UserError(str(e))
+        return jsonify(sites=sitebrowser.sites(c))
+
+
+@bp.delete("/sites/<path:name>")
+def sites_remove(name):
+    import sitebrowser
+    with con() as c:
+        sitebrowser.remove_site(c, name)
+        return jsonify(sites=sitebrowser.sites(c))
+
+
+@bp.post("/sites/window")
+def sites_window():
+    """[専用の窓で開く]。本人が手でログインするため。"""
+    import sitebrowser
+    name = body().get("name")
+    with con() as c:
+        site = next((s for s in sitebrowser.sites(c) if s["name"] == name), None)
+    if not site:
+        raise UserError("そのサイトは登録されていません")
+    try:
+        sitebrowser.browser().show_window(site)
+    except sitebrowser.SiteError as e:
+        raise UserError(str(e))
+    return jsonify(ok=True)
+
+
 @bp.get("/mochi")
 def mochi_get():
     with con() as c:

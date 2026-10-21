@@ -74,6 +74,15 @@ def _pick(args, keys):
     return {k: args[k] for k in keys if k in args}
 
 
+JP = {"name": "名前", "due_date": "締切", "due_time": "時刻", "start_date": "着手日", "repeat_weekday": "繰り返し", "open_url": "開くページ",
+      "container_id": "入れ物", "done": "完了", "kind_id": "種類", "ended": "終了", "company_domain": "会社のアドレス", "repo_path": "リポジトリ",
+      "repo_subdir": "リポジトリの中のフォルダ", "own_description": "説明", "dev_state": "開発の状態", "started_at": "始まり", "ended_at": "終わり", "note": "内容"}
+
+
+def _jp(fields):
+    return "・".join(JP.get(k, k) for k in fields)
+
+
 # ---------- 道具 ----------
 # kind: read(見る)/ write(その場で変える。元に戻せる)/ confirm(確認してから)
 TOOLS = {}
@@ -249,7 +258,7 @@ def t_task_update(a, ctx):
     old = _row("tasks", a["task_id"], TASK_COLS)
     call("PATCH", f"/tasks/{a['task_id']}", fields)
     back = {k: (bool(old[k]) if k == "done" else old[k]) for k in fields}
-    what = "完了にした" if fields.get("done") is True else "未完了に戻した" if fields.get("done") is False else "直した(" + "・".join(fields) + ")"
+    what = "完了にした" if fields.get("done") is True else "未完了に戻した" if fields.get("done") is False else "直した(" + _jp(fields) + ")"
     return {"done": f"タスク「{old['name']}」を{what}", "undo": [["PATCH", f"/tasks/{a['task_id']}", back]]}
 
 
@@ -282,7 +291,7 @@ def t_cont_update(a, ctx):
     if "repo_path" in back:
         back["repo_subdir"] = old["repo_subdir"]
         back["repo_path"] = old["repo_path"] or ""
-    return {"done": f"「{old['name']}」を直した(" + "・".join(fields) + ")", "undo": [["PATCH", f"/containers/{a['container_id']}", back]]}
+    return {"done": f"「{old['name']}」を直した(" + _jp(fields) + ")", "undo": [["PATCH", f"/containers/{a['container_id']}", back]]}
 
 
 @tool("container_delete", "confirm", "入れ物を消す(中身が空のときだけ。確認が要る)", {"container_id": I}, ["container_id"], label="授業・会社・開発を消します")
@@ -405,7 +414,60 @@ def t_log_delete(a, ctx):
     return {"done": f"作業記録({old['started_at'][:16]})を消した"}
 
 
+# --- サイト(第6条・第11条) ---
+def _sites():
+    import sitebrowser
+    with _con() as c:
+        return sitebrowser.sites(c)
+
+
+def _site_call(fn):
+    import sitebrowser
+    try:
+        r = fn(sitebrowser.browser(), _sites())
+    except sitebrowser.SiteError as e:
+        raise ToolError(str(e))
+    r["text"] = DATA_NOTE + "\n" + r.get("text", "")
+    return r
+
+
+@tool("sites", "read", "登録したサイトの一覧(開けるのはこれだけ)", label="登録したサイトを見ています")
+def t_sites(a, ctx):
+    return [{"name": s["name"], "url": s["url"], "login": "自動(K'sLife)" if s["login"] == "auto" else "本人が手でログイン"} for s in _sites()]
+
+
+@tool("site_open", "read", "登録したサイトを開いて読む(path でそのサイトの中のページ)。リンクとボタンに番号が付く", {"site": S, "path": S}, ["site"],
+      label="サイトを開いています")
+def t_site_open(a, ctx):
+    site = next((s for s in _sites() if s["name"] == a["site"]), None)
+    if not site:
+        raise ToolError("そのサイトは登録されていません。設定の「サイト」で本人が登録したサイトだけ開けます")
+    return _site_call(lambda b, sl: b.open(sl, site, a.get("path")))
+
+
+@tool("site_follow", "read", "いま開いているページのリンクをたどる(番号は site_open の links の id)", {"item_id": I}, ["item_id"], label="リンクをたどっています")
+def t_site_follow(a, ctx):
+    return _site_call(lambda b, sl: b.follow(sl, a["item_id"]))
+
+
+@tool("site_click", "confirm", "いま開いているページのボタンを押す(番号は buttons の id。確認が要る)", {"item_id": I}, ["item_id"], label="ボタンを押します")
+def t_site_click(a, ctx):
+    import sitebrowser
+    name = _button_label(a["item_id"])
+    r = _site_call(lambda b, sl: b.click(sl, a["item_id"]))
+    return {"done": f"サイトのボタン「{name}」を押した", "page": {k: r[k] for k in ("title", "url")}}
+
+
+def _button_label(item_id):
+    import sitebrowser
+    try:
+        return sitebrowser.browser().label(item_id)
+    except sitebrowser.SiteError as e:
+        raise ToolError(str(e))
+
+
 PREVIEW = {
+    "site_click": lambda a: f"サイトのボタン「{_button_label(a['item_id'])}」を押す",
     "task_delete": _task_delete_preview,
     "container_delete": lambda a: "「" + _row("containers", a["container_id"], ["name"])["name"] + "」を消す",
     "link_delete": lambda a: "リンク「" + _row("links", a["link_id"], ["name"])["name"] + "」を消す",
