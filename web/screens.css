@@ -183,27 +183,39 @@
 .ev .loc{color:var(--sub);font-size:11.5px}
 .ev .evn{text-align:left;min-width:0;color:var(--ink)}
 .ev .evn:hover{text-decoration:underline}
-.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line);margin-top:12px}
+/* 月の画面:週ごとの行。日のマス(押すと日の小窓)の上に、帯(終日・何日も続く予定)と1日の予定を段に重ねる */
+.month{margin-top:12px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.month .wdh{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
 .month .wd{font-size:11px;color:var(--sub);padding:4px 6px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
-.month button{min-height:104px;min-width:0;text-align:left;padding:4px 5px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:3px;font-size:12px}
-.mitems{display:flex;flex-direction:column;gap:2px;min-width:0;width:100%}
-.mev,.mbar,.mmore{display:block;font-size:11px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.mev i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:1px}
+.mwk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:24px repeat(4,19px) minmax(6px,1fr);min-height:110px}
+.mcell{grid-row:1 / -1;min-width:0;text-align:left;padding:3px 5px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);font-size:12px;display:flex;align-items:flex-start}
+.mcell:hover{background:var(--side)}
+.mcell.out{color:var(--faint)}
+.mcell.td span{background:var(--blue);color:#fff;border-radius:10px;padding:0 6px}
+.msp,.mev,.mbar,.mmore{position:relative;z-index:1;margin:1px 3px;min-width:0;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.msp{border-radius:4px;padding:0 6px;color:#fff}
+.msp.cl{border-top-right-radius:0;border-bottom-right-radius:0;margin-right:0}
+.msp.cr{border-top-left-radius:0;border-bottom-left-radius:0;margin-left:0}
+.mev i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:0}
+.mev:hover,.mmore:hover{background:var(--side);border-radius:4px}
 .mbar{border-radius:3px;padding:0 4px}
 .mbar.mdone{text-decoration:line-through;opacity:.6}
 .mmore{color:var(--sub)}
-.month .dots{display:none}
-.month button:hover{background:var(--side)}
-.month .out{color:var(--faint)}
-.month .td > span:first-child{background:var(--blue);color:#fff;border-radius:10px;padding:0 6px;align-self:flex-start}
-.dots{display:flex;gap:3px;flex-wrap:wrap}
-.dots i{width:6px;height:6px;border-radius:50%}
 @media (max-width:760px){
   .ev{grid-template-columns:72px auto minmax(0,1fr) auto}
-  .month button{min-height:58px}
-  .month .mitems{display:none}
-  .month .dots{display:flex}
+  /* 細い形:文字を消して、帯は細い線、予定は点 */
+  .mwk{grid-template-rows:22px repeat(4,9px) minmax(4px,1fr);min-height:66px}
+  .msp{font-size:0;line-height:5px;height:5px;padding:0;margin-top:2px}
+  .mev,.mbar,.mmore{font-size:0;line-height:8px;height:8px}
+  .mev i{width:6px;height:6px}
+  .mbar{width:6px;border-radius:50%;padding:0;margin-left:5px}
+  .mmore{display:none}
 }
+.ev .per{color:var(--sub);font-size:11.5px;margin-left:6px}
+.syncline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:8px 0 2px;font-size:12.5px;color:var(--sub)}
+.syncline .ok{color:#1e8e3e;font-weight:700}
+.syncline .ng{color:var(--red);font-weight:700}
+.syncline .r{margin-left:auto;display:flex;gap:10px}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;background:var(--win)}
 .seg button{padding:4px 12px;font-size:12.5px;color:var(--sub)}
 .seg button.on{background:var(--ink);color:var(--win)}

@@ -56,10 +56,25 @@ def build(con, today=None):
     import gcal
 
     def events(day):
-        """Google カレンダーの、時刻の決まった予定(F12)。段取りさんが書いた締切は出さない。"""
-        got = gcal.cached(day.isoformat(), day.isoformat())
-        return [{"name": e["name"], "start": e["start"], "end": e["end"], "invited": e["invited"]}
-                for e in (got or []) if not e["all_day"] and e["marked"] != "task"]
+        """Google カレンダーの、時刻の決まった予定(F12)と、何日も続く予定。段取りさんが書いた締切は出さない。
+        続く予定は、始まりの日は始まりの時刻、終わりの日は「〜終わり」、間の日は「終日」で出す。"""
+        d = day.isoformat()
+        out = []
+        for e in gcal.cached(d, d) or []:
+            if e["marked"] == "task" or not gcal.covers(e, d):
+                continue
+            multi = e.get("last", e["date"]) > e["date"]
+            if e["all_day"] and not multi:
+                continue  # 1日だけの終日の予定は、今までどおり出さない
+            if e["all_day"] or (multi and e["date"] < d < e["last"]):
+                start, end = "終日", None
+            elif multi and d == e["last"]:
+                start, end = "00:00", e["end"]
+            else:
+                start, end = e["start"], (None if multi else e["end"])
+            out.append({"name": e["name"], "start": start, "end": end, "invited": e["invited"],
+                        "span": f"{e['date'][5:].replace('-', '/')}〜{e['last'][5:].replace('-', '/')}" if multi else None})
+        return out
 
     # 今日のリンク:今日の授業の順 → 「いつもトップに出す」(基本設計 S1-12)
     link_rows, seen = [], set()
@@ -101,6 +116,9 @@ def build(con, today=None):
     new_mail = con.execute("SELECT COUNT(*) FROM messages WHERE seen = 0 AND category NOT IN ('Forms', '提出受付')").fetchone()[0]
     if new_mail:
         notices.append({"kind": "mail", "text": f"新しい連絡 {new_mail}件", "count": new_mail})
+    sy = gcal.sync_state(con)
+    if sy and sy["bad"] and sy["streak"] >= 2:  # 2回続けて直せなかったときだけ知らせる(1回の失敗では騒がない)
+        notices.append({"kind": "sync", "text": f"Google カレンダーとそろっていない締切が {len(sy['bad'])}件あります", "count": len(sy["bad"])})
     waiting_held = len(gcal.held_waiting(con))
     if waiting_held:
         notices.append({"kind": "held", "text": f"カレンダーに書かなかった予定 {waiting_held}件", "count": waiting_held})

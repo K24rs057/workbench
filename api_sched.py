@@ -78,13 +78,19 @@ def schedule():
             cls = timetable.classes_on(c, d)
             items = []
             for e in events:
-                if e["date"] != iso or e["marked"] == "task":  # 段取りさんが書いた締切は、タスクとして1回だけ出す
+                # 何日も続く予定は、かかる日のすべてに出す。段取りさんが書いた締切は、タスクとして1回だけ出す
+                if not gcal.covers(e, iso) or e["marked"] == "task":
                     continue
                 x = extras.get(e["id"])
                 cid = x["container_id"] if x else None
-                editable = not e["invited"] or bool(x and x["edit_allowed"])
+                last = e.get("last", e["date"])
+                multi = last > e["date"]
+                # 続く予定は、ここの小窓(1日分の形)で直すと1日に縮んでしまうので、Google カレンダーで直してもらう
+                editable = (not e["invited"] or bool(x and x["edit_allowed"])) and not multi
+                pos = "only" if not multi else "first" if iso == e["date"] else "last" if iso == last else "mid"
                 items.append({"type": "event", "id": e["id"], "name": e["name"], "start": e["start"], "end": e["end"],
                               "all_day": e["all_day"], "invited": e["invited"], "editable": editable, "edit_allowed": bool(x and x["edit_allowed"]),
+                              "first": e["date"], "last": last, "multi": multi, "pos": pos, "link": e.get("link"),
                               "location": e["location"], "container_id": cid, "label": labels.get(cid)})
             for t in c.execute("SELECT t.* FROM tasks t JOIN containers c ON c.id = t.container_id WHERE t.due_date = ? AND c.ended = 0", (iso,)):
                 items.append({"type": "task", "id": t["id"], "name": t["name"], "start": t["due_time"], "done": bool(t["done"]),
@@ -92,13 +98,19 @@ def schedule():
             for h in c.execute("SELECT * FROM held_events WHERE substr(start_at, 1, 10) = ?", (iso,)):
                 items.append({"type": "held", "id": h["id"], "name": h["title"], "start": h["start_at"][11:16] or None,
                               "end": h["end_at"][11:16] if h["end_at"] else None, "reason": h["reason"], "label": labels.get(h["container_id"])})
-            items.sort(key=lambda i: (i["start"] or "00:00") if i["type"] != "task" else (i["start"] or "99:99"))
+            def order(i):  # 終日・続く予定の間の日 → 時刻順 → 時刻なしの締切
+                if i["type"] == "task":
+                    return i["start"] or "99:99"
+                if i.get("pos") in ("mid", "last") or i.get("all_day"):
+                    return "00:00"
+                return i["start"] or "00:00"
+            items.sort(key=order)
             classes = {"count": len(cls), "start": cls[0]["start"], "end": max(x["end"] for x in cls), "names": [x["name"] for x in cls]} if cls else None
             days.append({"date": iso, "classes": classes, "items": items})
             d += timedelta(days=1)
         held = [{"id": h["id"], "name": h["title"], "start_at": h["start_at"], "reason": h["reason"]} for h in gcal.held_waiting(c)]
         import gmail
-        return jsonify(days=days, error=error, connected=gmail.calendar_allowed(), held=held,
+        return jsonify(days=days, error=error, connected=gmail.calendar_allowed(), held=held, sync=gcal.sync_state(c),
                        kinds={k["name"]: k["color"] for k in c.execute("SELECT name, color FROM kinds")})
 
 
@@ -150,10 +162,15 @@ def events_add():
 
 
 def _current(gid):
+    """いまの予定。読んであればそれを、なければ Google に1件だけ聞く(招待か・続く予定かを見分けるため)。"""
     for e in gcal.cached() or []:
         if e["id"] == gid:
             return e
-    return None
+    try:
+        api = gcal._api()
+        return gcal.normalize(api.get(gid)) if api else None
+    except Exception:
+        return None
 
 
 @bp.patch("/events/<gid>")
@@ -173,6 +190,8 @@ def events_update(gid):
         if e and e["invited"] and not (x and x["edit_allowed"]):
             raise UserError("招待された予定は見るだけです。直すときは、予定の「直せるようにする」をオンにしてください")
         if any(k in b for k in ("name", "date", "start", "end")):
+            if e and e.get("last", e["date"]) > e["date"]:
+                raise UserError("何日も続く予定は、ここでは直せません。Google カレンダーで直してください")
             bd = _strip_private(_event_body(b))
             ev = _google(_cal().patch, gid, bd)
             gcal.mark_dirty(c)
@@ -194,6 +213,16 @@ def events_delete(gid):
         gcal.mark_dirty(c)
     gcal.forget(gid)
     return jsonify(ok=True)
+
+
+@bp.post("/calendar/check")
+def calendar_check():
+    """[今すぐ確かめる]。読んで、書いて、照らし合わせる。"""
+    with con() as c:
+        api = _cal()
+        if not gcal.refresh(c, api=api, force=True):
+            raise UserError(NOT_CONNECTED)
+        return jsonify(gcal.sync_state(c))
 
 
 # ---------- シフト表の写真(F14、A20・A21) ----------

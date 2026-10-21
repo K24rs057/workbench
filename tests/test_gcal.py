@@ -21,6 +21,9 @@ class FakeCal:
             raise RuntimeError("connection refused")
         return list(self.events.values())
 
+    def get(self, eid):
+        return self.events[eid]
+
     def insert(self, body):
         self.n += 1
         ev = {"id": f"new{self.n}", "organizer": {"self": True}, **body}
@@ -236,3 +239,124 @@ def test_held_force_and_drop(client, db_path, fake):
 def test_schedule_without_calendar_still_shows_tasks(client, db_path):
     d = client.get("/api/schedule?from=2026-10-19&to=2026-10-20").get_json()
     assert d["connected"] in (True, False) and len(d["days"]) == 2
+
+
+# ---------- 何日も続く予定の帯(2026-10-21) ----------
+def span(eid, first, last_exclusive, name):
+    return {"id": eid, "summary": name, "start": {"date": first}, "end": {"date": last_exclusive}, "organizer": {"self": True}}
+
+
+def test_last_day():
+    assert gcal.last_day(True, "2026-11-08", "2026-11-13") == "2026-11-12"   # 終日は終わりの日を含まない
+    assert gcal.last_day(True, "2026-11-03", "2026-11-04") == "2026-11-03"
+    assert gcal.last_day(False, "2026-11-11T18:00", "2026-11-12T01:00") == "2026-11-12"
+    assert gcal.last_day(False, "2026-11-11T18:00", "2026-11-12T00:00") == "2026-11-11"  # 0:00 に終わるなら次の日にはかからない
+    assert gcal.last_day(False, "2026-11-11T10:00", "2026-11-11T11:00") == "2026-11-11"
+
+
+@pytest.fixture
+def fake_span(monkeypatch):
+    cal = FakeCal([span("s", "2026-10-18", "2026-10-23", "授業休み"),
+                   timed("v", "2026-10-21", "18:00", "19:00", "x") | {"end": {"dateTime": "2026-10-22T01:00:00+09:00"}, "summary": "ライブ"}])
+    monkeypatch.setattr(gcal, "_api", lambda: cal)
+    import gmail
+    monkeypatch.setattr(gmail, "calendar_allowed", lambda env=None: True)
+    return cal
+
+
+def test_multi_day_on_every_day(client, db_path, fake_span):
+    d = client.get("/api/schedule?from=2026-10-19&to=2026-10-25").get_json()
+    on = {x["date"]: [(i["name"], i["pos"]) for i in x["items"] if i["type"] == "event"] for x in d["days"]}
+    assert on["2026-10-19"] == [("授業休み", "mid")]   # 前の週から続いている予定も出す
+    assert on["2026-10-21"] == [("授業休み", "mid"), ("ライブ", "first")]
+    assert on["2026-10-22"] == [("授業休み", "last"), ("ライブ", "last")]
+    assert on["2026-10-23"] == []
+    ev = next(i for i in d["days"][0]["items"] if i["name"] == "授業休み")
+    assert ev["multi"] and ev["first"] == "2026-10-18" and ev["last"] == "2026-10-22" and ev["editable"] is False
+    # 続く予定は1日の形に縮めない
+    r = client.patch("/api/events/s", json={"name": "x", "date": "2026-10-19"})
+    assert r.status_code == 400 and "Google カレンダーで直して" in r.get_json()["error"]
+
+
+def test_top_shows_running_events(db_path, fake_span):
+    setup(db_path)
+    with db.session(db_path) as con:
+        gcal.refresh(con, now=NOW, api=fake_span, force=True)
+        import top
+        from datetime import date
+        t = top.build(con, today=date(2026, 10, 22))
+    got = {e["name"]: (e["start"], e["end"], e["span"]) for e in t["events_today"]}
+    assert got["授業休み"] == ("終日", None, "10/18〜10/22")
+    assert got["ライブ"] == ("00:00", "01:00", "10/21〜10/22")
+
+
+# ---------- 同期の確かめ(2026-10-21) ----------
+def test_verify_ok_and_counts(db_path):
+    cid = setup(db_path)
+    cal = FakeCal()
+    with db.session(db_path) as con:
+        tasks.add(con, {"container_id": cid, "name": "ES", "due_date": "2026-10-25"})
+        tasks.add(con, {"container_id": cid, "name": "第4回", "due_date": "2026-10-28", "due_time": "23:59"})
+        run(con, cal)
+        st = gcal.sync_state(con)
+        assert st["bad"] == [] and st["checked"] == 2 and st["streak"] == 0
+
+
+def test_verify_finds_lost_write_and_fixes(db_path):
+    cid = setup(db_path)
+
+    class Lossy(FakeCal):  # 書いたと返事したのに、読むと入っていない
+        def insert(self, body):
+            self.n += 1
+            return {"id": f"lost{self.n}", "organizer": {"self": True}, **body}
+    cal = Lossy()
+    with db.session(db_path) as con:
+        tasks.add(con, {"container_id": cid, "name": "ES", "due_date": "2026-10-25"})
+        run(con, cal)
+        st = gcal.sync_state(con)
+        assert st["bad"][0]["why"] == "Google にありません" and st["streak"] == 1
+        assert mails_setting(con, "calendar_dirty") == "1"  # 次の1分でもう一度直す
+        import top
+        assert not any(n["kind"] == "sync" for n in top.build(con, today=NOW.date())["notices"])  # 1回では知らせない
+        run(con, cal)
+        assert gcal.sync_state(con)["streak"] == 2
+        assert any(n["kind"] == "sync" for n in top.build(con, today=NOW.date())["notices"])
+        # ちゃんと書けるようになったら、そろう
+        cal.__class__ = FakeCal
+        run(con, cal)
+        st = gcal.sync_state(con)
+        assert st["bad"] == [] and st["streak"] == 0
+        assert len(cal.events) == 1
+
+
+def test_verify_finds_stale_name_and_rewrites(db_path):
+    cid = setup(db_path)
+
+    class NoPatch(FakeCal):  # 直したと返事したのに、Google は古いまま
+        def patch(self, eid, body):
+            return self.events[eid]
+    cal = NoPatch()
+    with db.session(db_path) as con:
+        tid = tasks.add(con, {"container_id": cid, "name": "ES", "due_date": "2026-10-25"})
+        run(con, cal)
+        con.execute("UPDATE tasks SET name = 'ES(本選考)' WHERE id = ?", (tid,))
+        run(con, cal)
+        st = gcal.sync_state(con)
+        assert "古いまま" in st["bad"][0]["why"]
+        assert tasks.get(con, tid)["name"] == "ES(本選考)"  # Google の古い名前でタスクを戻さない
+        cal.__class__ = FakeCal
+        run(con, cal)
+        assert gcal.sync_state(con)["bad"] == []
+        assert next(iter(cal.events.values()))["summary"] == "締切 ES(本選考)"
+        assert tasks.get(con, tid)["name"] == "ES(本選考)"
+
+
+def test_check_now_endpoint(client, db_path, fake):
+    r = client.post("/api/calendar/check")
+    assert r.status_code == 200 and r.get_json()["bad"] == []
+    assert client.get("/api/schedule?from=2026-10-19&to=2026-10-20").get_json()["sync"]["at"]
+
+
+def mails_setting(con, key):
+    r = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return r[0] if r else None

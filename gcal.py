@@ -41,6 +41,9 @@ class GoogleCalendar:
             if not page:
                 return out
 
+    def get(self, eid):
+        return self.svc.events().get(calendarId="primary", eventId=eid).execute()
+
     def insert(self, body):
         return self.svc.events().insert(calendarId="primary", body=body).execute()
 
@@ -74,10 +77,28 @@ def normalize(ev):
     end = e.get("date") or e.get("dateTime", "")[:16]
     return {"id": ev["id"], "name": ev.get("summary") or "(名前なし)", "all_day": all_day,
             "date": start[:10], "start": None if all_day else start[11:16], "end": None if all_day else end[11:16],
-            "end_date": end[:10], "location": ev.get("location"), "marked": priv.get(MARK),
+            "end_date": end[:10], "last": last_day(all_day, start, end), "location": ev.get("location"), "marked": priv.get(MARK),
             "task_id": int(priv["dandori_task"]) if priv.get("dandori_task", "").isdigit() else None,
             "invited": not org.get("self", True), "guests_can_modify": bool(ev.get("guestsCanModify")),
             "link": ev.get("htmlLink")}
+
+
+def last_day(all_day, start, end):
+    """予定がかかる最後の日。終日の予定は Google では終わりの日を含まないので1日もどす。
+    時刻つきで 0:00 に終わる予定も、その日にはかからない。"""
+    first = start[:10]
+    if not end or end[:10] <= first:
+        return first
+    if all_day:
+        return max(first, (date.fromisoformat(end[:10]) - timedelta(days=1)).isoformat())
+    if end[11:16] == "00:00":
+        return max(first, (date.fromisoformat(end[:10]) - timedelta(days=1)).isoformat())
+    return end[:10]
+
+
+def covers(e, day):
+    """その日にかかる予定か(何日も続く予定は、間の日にもかかる)。"""
+    return e["date"] <= day <= e.get("last", e["date"])
 
 
 def task_summary(t):
@@ -122,12 +143,12 @@ def overlaps(items, day, start, end):
 
 # ---------- 読む(F12) ----------
 def cached(day_from=None, day_to=None):
-    """読んである予定のうち、その日の範囲のもの。読めていなければ None。"""
+    """読んである予定のうち、その日の範囲にかかるもの(前から続いている予定も入れる)。読めていなければ None。"""
     with _lock:
         if _cache["at"] is None:
             return None
         items = list(_cache["items"])
-    return [i for i in items if (not day_from or i["date"] >= day_from) and (not day_to or i["date"] <= day_to)]
+    return [i for i in items if (not day_from or i.get("last", i["date"]) >= day_from) and (not day_to or i["date"] <= day_to)]
 
 
 def error():
@@ -167,21 +188,98 @@ def refresh(con, now=None, api=None, force=False):
         return False
     today = now.date()
     t_min, t_max = today - timedelta(days=BACK_DAYS), today + timedelta(days=AHEAD_DAYS)
-    try:
+    def read():
         raw = api.list(_rfc(t_min), _rfc(t_max))
-        items = [normalize(e) for e in raw if e.get("status") != "cancelled"]
+        got = [normalize(e) for e in raw if e.get("status") != "cancelled"]
         with _lock:
-            _cache.update(at=now, items=items, error=None, **{"from": t_min.isoformat(), "to": t_max.isoformat()})
+            _cache.update(at=now, items=got, error=None, **{"from": t_min.isoformat(), "to": t_max.isoformat()})
+        return got
+
+    try:
+        items = read()
         pull_changes(con, items, t_min.isoformat(), t_max.isoformat())
-        push_tasks(con, api, items, today)
-        write_held(con, api, items)
+        counted = _Counting(api)
+        push_tasks(con, counted, items, today)
+        write_held(con, counted, items)
+        if counted.writes:  # 書いたら読み直して、本当に Google に入ったかを照らし合わせる
+            items = read()
+        state = verify(con, items, today, t_max, now)
     except Exception as e:  # つながらない・許可切れなど。推測で埋めない
         _fail(con, e)
         return False
     con.execute("DELETE FROM settings WHERE key IN ('calendar_error', 'calendar_dirty')")
+    if state["bad"] and state["streak"] < 2:
+        mark_dirty(con)  # ずれていたら、次の1分の見回りでもう一度直す。2回続けて直せなければ知らせる
     con.execute("INSERT INTO job_status(job, last_run_at, last_error) VALUES ('Google カレンダー', ?, NULL) "
                 "ON CONFLICT(job) DO UPDATE SET last_run_at = excluded.last_run_at, last_error = NULL", (now.isoformat(timespec="seconds"),))
     return True
+
+
+class _Counting:
+    """書き込みの回数を数える(書いたときだけ読み直すため)。"""
+    def __init__(self, api):
+        self.api, self.writes = api, 0
+
+    def list(self, *a):
+        return self.api.list(*a)
+
+    def insert(self, body):
+        self.writes += 1
+        return self.api.insert(body)
+
+    def patch(self, eid, body):
+        self.writes += 1
+        return self.api.patch(eid, body)
+
+    def delete(self, eid):
+        self.writes += 1
+        return self.api.delete(eid)
+
+
+# ---------- 同期の確かめ(照らし合わせ) ----------
+def verify(con, items, today, t_max, now):
+    """段取りさんが書いた締切が、Google カレンダーとそろっているか。手やスマホで足した予定は見ない。
+    ずれていたものは、次の見回りで書き直すように印をつけ直す。結果を settings の sync_state に置く。"""
+    import json
+    by_id = {i["id"]: i for i in items}
+    bad, checked = [], 0
+    rows = con.execute("SELECT * FROM tasks WHERE due_date >= ? AND due_date < ? AND calendar_deleted = 0",
+                       (today.isoformat(), t_max.isoformat())).fetchall()
+    for t in rows:
+        x = con.execute("SELECT * FROM event_extras WHERE marked = 1 AND task_id = ?", (t["id"],)).fetchone()
+        if not x and (t["done"] or not t["calendar_written"] or not _writable(con, t)):
+            if not t["done"] and not t["calendar_written"] and _writable(con, t):
+                bad.append({"task_id": t["id"], "name": t["name"], "date": t["due_date"], "why": "Google にまだ書けていません"})
+                checked += 1
+            continue
+        checked += 1
+        if not x:  # 同じ名前の締切がもうあったので書かなかったもの(モーニングブリーフなど)
+            if not any(i["all_day"] and i["date"] == t["due_date"] and bare_name(i["name"]) == t["name"] for i in items):
+                con.execute("UPDATE tasks SET calendar_written = 0 WHERE id = ?", (t["id"],))
+                bad.append({"task_id": t["id"], "name": t["name"], "date": t["due_date"], "why": "Google にありません"})
+            continue
+        ev = by_id.get(x["google_event_id"])
+        if not ev:
+            con.execute("DELETE FROM event_extras WHERE id = ?", (x["id"],))
+            con.execute("UPDATE tasks SET calendar_written = 0 WHERE id = ?", (t["id"],))
+            bad.append({"task_id": t["id"], "name": t["name"], "date": t["due_date"], "why": "Google にありません"})
+            continue
+        if ev["name"] != task_summary(t) or ev["date"] != t["due_date"]:
+            # Google の今の形を覚え直す。こうすると次の見回りで「Google 側で変えた」とはみなさず、タスクの形で書き直す
+            con.execute("UPDATE event_extras SET synced_summary = ?, synced_date = ? WHERE id = ?", (ev["name"], ev["date"], x["id"]))
+            bad.append({"task_id": t["id"], "name": t["name"], "date": t["due_date"], "why": "Google の名前か日付が古いままです"})
+    prev = json.loads(mails.setting(con, "sync_state") or "{}")
+    streak = (prev.get("streak", 0) + 1) if bad else 0
+    state = {"at": now.isoformat(timespec="seconds"), "checked": checked, "bad": bad[:30], "streak": streak,
+             "held": len(held_waiting(con))}
+    mails.set_setting(con, "sync_state", json.dumps(state, ensure_ascii=False))
+    return state
+
+
+def sync_state(con):
+    import json
+    v = mails.setting(con, "sync_state")
+    return json.loads(v) if v else None
 
 
 def _fail(con, e):

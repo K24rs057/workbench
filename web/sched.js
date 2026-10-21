@@ -20,7 +20,15 @@
     return [iso(start), iso(addDays(last, 6 - last.getDay()))];
   }
 
-  const tm = (i) => (i.type === 'task' ? `締切${i.start ? ' ' + esc(i.start) : ''}` : i.start ? `${esc(i.start)}${i.end ? '〜' + esc(i.end) : ''}` : '終日');
+  const md0 = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+  // 何日も続く予定は、始まりの日は「18:00〜」、終わりの日は「〜01:00」、間の日と終日は「終日」
+  const tm = (i) => {
+    if (i.type === 'task') return `締切${i.start ? ' ' + esc(i.start) : ''}`;
+    if (i.multi && !i.all_day) return i.pos === 'first' ? `${esc(i.start)}〜` : i.pos === 'last' ? `〜${esc(i.end)}` : '終日';
+    return i.start ? `${esc(i.start)}${i.end ? '〜' + esc(i.end) : ''}` : '終日';
+  };
+  const evColor = (i) => (i.label && i.label.color) || 'var(--gcal)';  // 授業・会社・開発に結びつけた予定だけ種類の色(2026-10-21 決定 C)
+  const isBar = (i) => i.type === 'event' && (i.all_day || i.multi);
 
   function row(i) {
     if (i.type === 'task') {
@@ -31,7 +39,7 @@
       const why = i.reason === '重なる予定がある' ? '重なる予定があるため書いていません' : i.reason === 'つながらなかった' ? 'つながったら書きます' : 'カレンダーに書く前です';
       return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<span>${esc(i.name)} <button class="mk mk-rep" data-heldlist title="${why}">預かり中</button></span><span></span></div>`;
     }
-    return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<button class="evn" data-evopen="${esc(i.id)}">${esc(i.name)}${i.invited ? ' <span class="mk mk-pick">招待</span>' : ''}${i.location ? `<span class="loc"> ${esc(i.location)}</span>` : ''}</button><span></span></div>`;
+    return `<div class="ev"><span class="tm">${tm(i)}</span>${lab(i.label)}<button class="evn" data-evopen="${esc(i.id)}">${esc(i.name)}${i.multi ? `<span class="per">${md0(i.first)}〜${md0(i.last)}</span>` : ''}${i.invited ? ' <span class="mk mk-pick">招待</span>' : ''}${i.location ? `<span class="loc"> ${esc(i.location)}</span>` : ''}</button><span></span></div>`;
   }
   function classRow(c, uni) {
     return `<div class="ev"><span class="tm">${esc(c.start)}〜${esc(c.end)}</span>${kindLabel('大学', uni)}<span>授業 ${c.count}コマ<span class="loc"> ${esc(c.names.join('・'))}</span></span><span></span></div>`;
@@ -42,7 +50,7 @@
     const d = await api('GET', `/schedule?from=${a}&to=${b}`);
     S.sd = d;
     S.c = { tasks: d.days.flatMap((x) => x.items.filter((i) => i.type === 'task')) };
-    S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: x.date }])));
+    S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: i.first || x.date }])));
     const uni = d.kinds['大学'] || '#17806a';
     const t0 = isoToday();
     const head = S.sv === 'list'
@@ -58,22 +66,83 @@
         return `<div class="sched-day"><h3 class="${x.date === t0 ? 'today' : ''}">${md(x.date)}${x.date === t0 ? ' 今日' : ''}</h3>${rows || '<div class="none">予定なし</div>'}</div>`;
       }).join('');
     } else {
-      const cells = d.days.map((x) => {
-        const out = x.date.slice(0, 7) !== S.smonth;
-        const items = [
-          ...x.items.filter((i) => i.type === 'task').map((i) => { const c = (i.label || {}).color || GRAY; return `<span class="mbar ${i.done ? 'mdone' : ''}" style="color:${c};background:color-mix(in srgb, ${c} 16%, transparent)">締切 ${esc(i.name)}</span>`; }),
-          ...(x.classes ? [`<span class="mev"><i style="background:${uni}"></i>${esc(x.classes.start)} 大学 授業${x.classes.count}</span>`] : []),
-          ...x.items.filter((i) => i.type !== 'task').map((i) => `<span class="mev"><i style="background:${(i.label || {}).color || GRAY}"></i>${i.start ? esc(i.start) + ' ' : ''}${esc(i.name)}</span>`),
-        ];
-        const dots = [...x.items.map((i) => `<i style="background:${(i.label || {}).color || GRAY}"></i>`), ...(x.classes ? [`<i style="background:${uni}"></i>`] : [])].join('');
-        return `<button data-sday="${x.date}" class="${out ? 'out' : ''} ${x.date === t0 ? 'td' : ''}"><span>${+x.date.slice(8)}</span><span class="mitems">${items.slice(0, 3).join('')}${items.length > 3 ? `<span class="mmore">他 ${items.length - 3}件</span>` : ''}</span><span class="dots">${dots}</span></button>`;
-      }).join('');
-      main = `<div class="month">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>`;
+      main = monthGrid(d, uni, t0);
     }
     const drop = `<div class="shdrop" id="shdrop"><b>シフト表の写真をここに落とす</b><span>Claude が自分のシフトだけを読み取ります。読み取った結果を見てから書き込めます</span>
       <label class="btn sm">写真を選ぶ<input type="file" accept="image/*" id="shfile" hidden></label></div>`;
-    return top + `<div class="col" style="padding-top:4px">${warn}${held}${main}${d.connected ? drop : ''}
+    return top + `<div class="col" style="padding-top:4px">${syncLine(d.sync, d.connected)}${warn}${held}${main}${d.connected ? drop : ''}
       <div class="hint" style="padding:12px 0">スマホなどで足した予定も、10分ごとに読んで出します。段取りさんが書いた締切は、ここではタスクとして1回だけ出します。</div></div>`;
+  }
+
+  // ---------- 月の画面(帯) ----------
+  const MAXROWS = 3;
+  function monthGrid(d, uni, t0) {
+    const weeks = [];
+    for (let k = 0; k < d.days.length; k += 7) weeks.push(d.days.slice(k, k + 7));
+    let html = `<div class="month"><div class="wdh">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="wd">${w}</div>`).join('')}</div>`;
+    for (const wk of weeks) {
+      const days = wk.map((x) => x.date);
+      const w0 = days[0], w6 = days[6];
+      // 帯:この週にかかる終日・続く予定を、早い順・長い順に段へ詰める
+      const seen = new Set();
+      const spans = [];
+      wk.forEach((x) => x.items.filter(isBar).forEach((i) => {
+        if (seen.has(i.id)) return;
+        seen.add(i.id);
+        const a = days.indexOf(i.first < w0 ? w0 : i.first), b = days.indexOf(i.last > w6 ? w6 : i.last);
+        spans.push({ i, a: a < 0 ? 0 : a, b: b < 0 ? 6 : b });
+      }));
+      spans.sort((x, y) => (x.a - y.a) || ((y.b - y.a) - (x.b - x.a)));
+      const used = days.map(() => []);
+      for (const sp of spans) {
+        let lane = 0;
+        while ([...Array(sp.b - sp.a + 1).keys()].some((k) => used[sp.a + k][lane])) lane++;
+        sp.lane = lane;
+        for (let k = sp.a; k <= sp.b; k++) used[k][lane] = true;
+      }
+      // 1日の予定(締切・授業・時刻のある予定・預かった予定)は、その日の空いた段へ
+      const singles = wk.map((x, n) => {
+        const list = [
+          ...x.items.filter((i) => i.type === 'task').map((i) => ({ i })),
+          ...(x.classes ? [{ cls: x.classes }] : []),
+          ...x.items.filter((i) => i.type !== 'task' && !isBar(i)).map((i) => ({ i })),
+        ];
+        return list.map((it) => { let lane = 0; while (used[n][lane]) lane++; used[n][lane] = true; return { ...it, lane }; });
+      });
+      const row = (lane) => lane + 2;
+      let parts = wk.map((x, n) => `<button class="mcell ${x.date.slice(0, 7) !== S.smonth ? 'out' : ''} ${x.date === t0 ? 'td' : ''}" style="grid-column:${n + 1}" data-sday="${x.date}"><span>${+x.date.slice(8)}</span></button>`).join('');
+      for (const sp of spans) {
+        if (sp.lane >= MAXROWS) continue;
+        const i = sp.i;
+        const cl = i.last > w6, cr = i.first < w0;  // 週をまたぐ帯は、切れ目の角を四角にする
+        const t = !i.all_day && i.start ? i.start + ' ' : '';
+        parts += `<button class="msp ${cl ? 'cl' : ''} ${cr ? 'cr' : ''}" style="grid-column:${sp.a + 1} / ${sp.b + 2};grid-row:${row(sp.lane)};background:${evColor(i)}" data-evopen="${esc(i.id)}" title="${esc(i.name)}">${esc(t + i.name)}</button>`;
+      }
+      wk.forEach((x, n) => {
+        for (const it of singles[n]) {
+          if (it.lane >= MAXROWS) continue;
+          const pos = `grid-column:${n + 1};grid-row:${row(it.lane)}`;
+          if (it.cls) parts += `<span class="mev" style="${pos}"><i style="background:${uni}"></i>${esc(it.cls.start)} 大学 授業${it.cls.count}</span>`;
+          else if (it.i.type === 'task') { const c = (it.i.label || {}).color || GRAY; parts += `<span class="mbar ${it.i.done ? 'mdone' : ''}" style="${pos};color:${c};background:color-mix(in srgb, ${c} 16%, transparent)">締切 ${esc(it.i.name)}</span>`; }
+          else if (it.i.type === 'held') parts += `<button class="mev" style="${pos}" data-heldlist><i style="background:var(--amber)"></i>${it.i.start ? esc(it.i.start) + ' ' : ''}${esc(it.i.name)}</button>`;
+          else parts += `<button class="mev" style="${pos}" data-evopen="${esc(it.i.id)}"><i style="background:${evColor(it.i)}"></i>${it.i.start ? esc(it.i.start) + ' ' : ''}${esc(it.i.name)}</button>`;
+        }
+        const hidden = spans.filter((sp) => sp.lane >= MAXROWS && sp.a <= n && n <= sp.b).length + singles[n].filter((it) => it.lane >= MAXROWS).length;
+        if (hidden) parts += `<button class="mmore" style="grid-column:${n + 1};grid-row:${row(MAXROWS)}" data-sday="${x.date}">他 ${hidden}件</button>`;
+      });
+      html += `<div class="mwk">${parts}</div>`;
+    }
+    return html + '</div>';
+  }
+
+  // ---------- Google カレンダーとそろっているか(同期の確かめ) ----------
+  function syncLine(sy, connected) {
+    if (!connected || !sy) return '';
+    const at = sy.at ? sy.at.slice(11, 16) : '';
+    if (sy.checking) return '<div class="syncline"><span>Google カレンダーとそろっているかを確かめています…</span></div>';
+    if (!sy.bad.length) return `<div class="syncline"><span class="ok">● Google カレンダーとそろっています</span><span>${esc(at)} に確かめました ・ 段取りさんが書いた締切 ${sy.checked}件</span><span class="r"><button class="link" data-synccheck>今すぐ確かめる</button></span></div>`;
+    const warn = sy.streak >= 2;
+    return `<div class="syncline"><span class="${warn ? 'ng' : ''}">● そろっていない締切が ${sy.bad.length}件あります</span><span>${esc(at)} に確かめました。${warn ? '2回続けて直せませんでした' : '次の見回りで直します'}</span><span class="r"><button class="link" data-syncdiff>どれかを見る</button><button class="link" data-synccheck>今すぐ確かめる</button></span></div>`;
   }
 
   function contOptions(sel) {
@@ -91,6 +160,7 @@
     const ro = ev && !ev.editable;
     const dis = ro ? 'disabled' : '';
     modal(`<h3>${ev ? (ro ? '予定' : '予定を直す') : '予定を足す'}</h3>
+      ${ev && ev.multi ? `<div class="hint" style="margin-bottom:8px">${md0(ev.first)}〜${md0(ev.last)} の、何日も続く予定です。日付や時刻は ${ev.link ? `<a href="${esc(ev.link)}" target="_blank" rel="noopener">Google カレンダー</a>` : 'Google カレンダー'}で直してください。ここでは、どの授業・会社・開発の予定かを選べます</div>` : ''}
       ${ev && ev.invited ? `<div class="hint" style="margin-bottom:8px">招待された予定です。ふだんは見るだけです。<span class="tg" style="margin-top:6px"><button class="sw ${ev.edit_allowed ? 'on' : ''}" data-evallow="${esc(ev.id)}" aria-label="直せるようにする"></button>この予定を直せるようにする</span></div>` : ''}
       <div class="field"><span>名前</span><input id="evn" value="${esc(ev ? ev.name : '')}" placeholder="サークル" ${dis}></div>
       <div class="field"><span>日付</span><input id="evd" type="date" value="${esc(ev ? ev.date : day || isoToday())}" ${dis}></div>
@@ -194,6 +264,18 @@
     const d = el.dataset;
     try {
       if (d.sv) { S.sv = d.sv; render(); return; }
+      if (d.synccheck !== undefined) {
+        el.textContent = '確かめています…'; el.disabled = true;
+        const r = await api('POST', '/calendar/check');
+        toast(r.bad.length ? `そろっていない締切が ${r.bad.length}件あります` : 'Google カレンダーとそろっています');
+        render(); return;
+      }
+      if (d.syncdiff !== undefined) {
+        const sy = S.sd.sync;
+        modal(`<h3>そろっていない締切</h3><div class="hint" style="margin-bottom:8px">段取りさんが書いた締切のうち、Google カレンダーと合っていないものです。見回りのたびに直そうとします</div>${sy.bad.map((b) => `<div class="ev" style="grid-template-columns:auto minmax(0,1fr)"><span class="tm">${esc(md0(b.date))}</span><span>${esc(b.name)}<span class="per">${esc(b.why)}</span></span></div>`).join('')}
+          <div class="acts"><button class="btn" data-close>閉じる</button></div>`);
+        return;
+      }
       if (d.stoday !== undefined) { S.slist = isoToday(); S.smonth = isoToday().slice(0, 7); render(); return; }
       if (d.snav) {
         const n = +d.snav;
