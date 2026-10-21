@@ -12,9 +12,9 @@
   S.slist = S.slist || isoToday();          // 一覧の始まりの日(今日から2週間)
   S.smonth = S.smonth || isoToday().slice(0, 7);
 
-  function range() {
-    if (S.sv === 'list') { const a = parse(S.slist); return [iso(a), iso(addDays(a, 13))]; }
-    const first = parse(S.smonth + '-01');
+  function range(month) {
+    if (S.sv === 'list' && !month) { const a = parse(S.slist); return [iso(a), iso(addDays(a, 13))]; }
+    const first = parse((month || S.smonth) + '-01');
     const start = addDays(first, -first.getDay());
     const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
     return [iso(start), iso(addDays(last, 6 - last.getDay()))];
@@ -45,6 +45,14 @@
     return `<div class="ev"><span class="tm">${esc(c.start)}〜${esc(c.end)}</span>${kindLabel('大学', uni)}<span>授業 ${c.count}コマ<span class="loc"> ${esc(c.names.join('・'))}</span></span><span></span></div>`;
   }
 
+  const shiftMonth = (m, n) => { const x = parse(m + '-01'); x.setMonth(x.getMonth() + n); return iso(x).slice(0, 7); };
+  function navHead() {
+    const [a, b] = range();
+    return S.sv === 'list'
+      ? `<span class="date snav"><button class="link" data-snav="-14" aria-label="前の2週間">‹</button> ${md(a)}〜${md(b)} <button class="link" data-snav="14" aria-label="次の2週間">›</button></span>`
+      : `<span class="date snav"><button class="link" data-snav="-1" aria-label="前の月">‹</button> ${S.smonth.slice(0, 4)}年${+S.smonth.slice(5)}月 <button class="link" data-snav="1" aria-label="次の月">›</button></span>`;
+  }
+
   async function schedView() {
     const [a, b] = range();
     const d = await api('GET', `/schedule?from=${a}&to=${b}`);
@@ -53,9 +61,11 @@
     S.sevents = Object.fromEntries(d.days.flatMap((x) => x.items.filter((i) => i.type === 'event').map((i) => [i.id, { ...i, date: i.first || x.date }])));
     const uni = d.kinds['大学'] || '#17806a';
     const t0 = isoToday();
-    const head = S.sv === 'list'
-      ? `<span class="date snav"><button class="link" data-snav="-14" aria-label="前の2週間">‹</button> ${md(a)}〜${md(b)} <button class="link" data-snav="14" aria-label="次の2週間">›</button></span>`
-      : `<span class="date snav"><button class="link" data-snav="-1" aria-label="前の月">‹</button> ${S.smonth.slice(0, 4)}年${+S.smonth.slice(5)}月 <button class="link" data-snav="1" aria-label="次の月">›</button></span>`;
+    const head = navHead();
+    if (S.sv === 'month') setTimeout(() => [-1, 1].forEach((k) => {  // となりの月を先に読んでおく(本体が10分覚える)
+      const [x, y] = range(shiftMonth(S.smonth, k));
+      api('GET', `/schedule?from=${x}&to=${y}`).catch(() => {});
+    }), 300);
     const top = `<div class="bar"><h1>予定</h1><span class="seg"><button data-sv="list" class="${S.sv === 'list' ? 'on' : ''}">一覧</button><button data-sv="month" class="${S.sv === 'month' ? 'on' : ''}">月</button></span>${head}<span class="r"><button class="btn sm" data-stoday>今日</button><button class="btn pri" data-evadd="" ${d.connected ? '' : 'disabled title="Google カレンダーにつながっていないため、足せません"'}>+ 予定</button></span></div>`;
     const warn = d.error ? `<div class="band">${esc(d.error)}。予定は出せません。締切と授業だけ出しています</div>` : !d.connected ? '<div class="band">Google カレンダーはまだつながっていません(設定の「Google」)。締切と授業だけ出しています</div>' : '';
     const held = d.held.length ? `<button class="band" data-heldlist>Google に書けなかった予定 ${d.held.length}件 ›</button>` : '';
@@ -280,7 +290,10 @@
       if (d.snav) {
         const n = +d.snav;
         if (S.sv === 'list') S.slist = iso(addDays(parse(S.slist), n));
-        else { const m = parse(S.smonth + '-01'); m.setMonth(m.getMonth() + n); S.smonth = iso(m).slice(0, 7); }
+        else S.smonth = shiftMonth(S.smonth, n);
+        const nav = el.closest('.snav');  // 届くのを待たずに、見出しだけ先に変えて「読んでいます」にする
+        if (nav) nav.outerHTML = navHead() + '<span class="hint">読んでいます…</span>';
+        const col = $('#main .col'); if (col) col.classList.add('loading');
         render(); return;
       }
       if (d.sday) { dayModal(d.sday); return; }

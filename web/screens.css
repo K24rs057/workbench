@@ -241,3 +241,6 @@
 .quick .qrow input:disabled{opacity:.6}
 .quick .hint{margin-top:5px}
 .mk-start{background:var(--blue-wash);color:var(--blue);border:1px solid var(--blue)}
+
+/* 月を切りかえて読んでいる間 */
+.col.loading{opacity:.45;pointer-events:none;transition:opacity .15s}

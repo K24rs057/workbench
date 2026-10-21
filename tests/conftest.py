@@ -37,6 +37,7 @@ def no_real_google(tmp_path, monkeypatch):
     import gmail
     monkeypatch.setattr(gmail, "ENV_PATH", tmp_path / ".env")
     gcal._cache.update(at=None, items=[], error=None)
+    gcal._extra.clear()
 
 
 @pytest.fixture

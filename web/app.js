@@ -489,11 +489,15 @@ async function sortModal() {
 async function render() {
   side();
   if (!S.kinds) S.kinds = await api('GET', '/kinds').catch(() => []);
+  const n = S.rn = (S.rn || 0) + 1;  // 続けて押したとき、あとから届いた古い答えで描き直さない
   try {
-    $('#main').innerHTML = await VIEWS[S.screen]();
+    const html = await VIEWS[S.screen]();
+    if (n !== S.rn) return;
+    $('#main').innerHTML = html;
     if (S.qfocus && $('#qin')) $('#qin').focus();
     S.qfocus = false;
   } catch (e) {
+    if (n !== S.rn) return;
     $('#main').innerHTML = bar('うまく読めませんでした') + `<div class="col">${emptyState(ILL.desk, '本体から読めませんでした', e.message)}</div>`;
   }
 }

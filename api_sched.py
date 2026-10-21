@@ -42,16 +42,19 @@ def _labels(c):
 
 
 def _events(day_from, day_to):
-    """読んである予定を使う。読んだ範囲の外なら、その場で Google に聞く(写しは残さない)。"""
+    """読んである予定を使う。読んだ範囲の外なら、その場で Google に聞き、10分だけ覚えておく。"""
     got = None
     c = gcal._cache
     if c["at"] and c["from"] <= day_from and day_to <= c["to"]:
         got = gcal.cached(day_from, day_to)
     if got is None:
+        got = gcal.extra(day_from, day_to)
+    if got is None:
         api = _cal()
         d0, d1 = date.fromisoformat(day_from), date.fromisoformat(day_to) + timedelta(days=1)
         raw = _google(api.list, gcal._rfc(d0), gcal._rfc(d1))
         got = [gcal.normalize(e) for e in raw if e.get("status") != "cancelled"]
+        gcal.keep_extra(day_from, day_to, got)
     return got
 
 

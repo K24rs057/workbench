@@ -51,6 +51,7 @@ def allday(eid, day, name):
 @pytest.fixture(autouse=True)
 def fresh_cache():
     gcal._cache.update(at=None, items=[], error=None)
+    gcal._extra.clear()
 
 
 def setup(db_path):
@@ -360,3 +361,56 @@ def test_check_now_endpoint(client, db_path, fake):
 def mails_setting(con, key):
     r = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return r[0] if r else None
+
+
+# ---------- 月の切りかえを軽く(2026-10-21) ----------
+class CountingCal(FakeCal):
+    def __init__(self, events=None):
+        super().__init__(events)
+        self.calls = 0
+
+    def list(self, tmin, tmax):
+        self.calls += 1
+        return super().list(tmin, tmax)
+
+
+def month_range(m):
+    from datetime import date, timedelta
+    first = date.fromisoformat(m + "-01")
+    start = first - timedelta(days=(first.weekday() + 1) % 7)
+    nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    last = nxt - timedelta(days=1)
+    return start.isoformat(), (last + timedelta(days=(5 - last.weekday()) % 7)).isoformat()
+
+
+@pytest.mark.parametrize("today", [datetime(2026, 10, 1, 9), datetime(2026, 10, 31, 9), datetime(2026, 12, 31, 9)])
+def test_month_view_from_last_month_to_two_ahead_uses_cache(db_path, monkeypatch, today, client):
+    cal = CountingCal([timed("own", "2026-10-21", "13:00", "14:00", "サークル")])
+    monkeypatch.setattr(gcal, "_api", lambda: cal)
+    import gmail
+    monkeypatch.setattr(gmail, "calendar_allowed", lambda env=None: True)
+    with db.session(db_path) as con:
+        gcal.refresh(con, now=today, api=cal, force=True)
+    n = cal.calls
+    y, m = today.year, today.month
+    for k in (-1, 0, 1, 2):  # 先月・今月・来月・再来月は、読みおきだけで出す
+        yy, mm = y + (m - 1 + k) // 12, (m - 1 + k) % 12 + 1
+        a, b = month_range(f"{yy}-{mm:02d}")
+        assert client.get(f"/api/schedule?from={a}&to={b}").status_code == 200
+    assert cal.calls == n
+
+
+def test_far_month_is_asked_once_then_kept(client, db_path, monkeypatch):
+    cal = CountingCal([timed("old", "2026-03-10", "10:00", "11:00", "むかしの予定")])
+    monkeypatch.setattr(gcal, "_api", lambda: cal)
+    import gmail
+    monkeypatch.setattr(gmail, "calendar_allowed", lambda env=None: True)
+    a, b = month_range("2026-03")
+    for _ in range(3):
+        d = client.get(f"/api/schedule?from={a}&to={b}").get_json()
+    assert cal.calls == 1  # 範囲の外の月は、はじめの1回だけ聞く
+    assert any(i["name"] == "むかしの予定" for x in d["days"] for i in x["items"])
+    gcal.forget("old")  # 直した・消したら忘れて、次は聞き直す
+    client.get(f"/api/schedule?from={a}&to={b}")
+    assert cal.calls == 2
+    assert gcal.extra(a, b, now=datetime.now() + timedelta(minutes=11)) is None  # 10分たったら聞き直す

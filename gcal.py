@@ -11,14 +11,16 @@ from datetime import date, datetime, timedelta
 import mails
 
 EVERY = timedelta(minutes=10)
-BACK_DAYS = 7          # 読む範囲:今日の7日前から
-AHEAD_DAYS = 70        # 70日先まで(予定の画面の「月」で次の月まで見えるように)
+BACK_DAYS = 70         # 読む範囲:今日の70日前から(予定の画面の「月」で先月まで、月末の日でも読みおきだけで出せるように)
+AHEAD_DAYS = 100       # 100日先まで(再来月まで)
+EXTRA_FOR = timedelta(minutes=10)  # 範囲の外の月は、一度聞いたら10分覚えておく
 MARK = "dandori"
 HM_RE = re.compile(r"^\d{1,2}:\d{2}$")
 PREFIX_RE = re.compile(r"^(済\s+)?(締切\s+(\d{1,2}:\d{2}\s+)?)?")
 
 _lock = threading.Lock()
 _cache = {"at": None, "from": None, "to": None, "items": [], "error": None}
+_extra = {}  # 範囲の外を聞いたときの写し。(from, to) → (聞いた時刻, 予定)。動いている間だけ覚える
 
 
 # ---------- Google とのやりとり(テストでは作り物に差しかえる) ----------
@@ -155,9 +157,23 @@ def error():
     return _cache["error"]
 
 
+def extra(day_from, day_to, now=None):
+    """範囲の外の月を、10分以内に聞いていればその写し。なければ None。"""
+    now = now or datetime.now()
+    with _lock:
+        got = _extra.get((day_from, day_to))
+    return list(got[1]) if got and now - got[0] < EXTRA_FOR else None
+
+
+def keep_extra(day_from, day_to, items, now=None):
+    with _lock:
+        _extra[(day_from, day_to)] = (now or datetime.now(), list(items))
+
+
 def remember(ev):
     """画面で足した予定を、次に読むまでの間も出せるようにする。"""
     with _lock:
+        _extra.clear()
         if _cache["at"] is not None:
             _cache["items"] = [i for i in _cache["items"] if i["id"] != ev["id"]] + [normalize(ev)]
 
@@ -165,6 +181,7 @@ def remember(ev):
 def forget(gid):
     """直した・消した予定は、次に読むまで出さない(古い形のまま出さないため)。"""
     with _lock:
+        _extra.clear()
         _cache["items"] = [i for i in _cache["items"] if i["id"] != gid]
 
 
@@ -192,6 +209,7 @@ def refresh(con, now=None, api=None, force=False):
         raw = api.list(_rfc(t_min), _rfc(t_max))
         got = [normalize(e) for e in raw if e.get("status") != "cancelled"]
         with _lock:
+            _extra.clear()
             _cache.update(at=now, items=got, error=None, **{"from": t_min.isoformat(), "to": t_max.isoformat()})
         return got
 
