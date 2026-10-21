@@ -3,7 +3,7 @@
 (function () {
   const M = { open: false, mode: 'bubble', log: [], busy: false, bub: null, justSaid: false, settings: {}, pos: null, wantFocus: false };
   const W = 58, H = 71;
-  const SCREEN_NAMES = { top: 'トップ', sched: '予定', mail: '連絡', cont: '授業・会社・開発の一覧', inside: '授業・会社・開発の中', set: '設定' };
+  const SCREEN_NAMES = { top: 'トップ', sched: '予定', mail: '連絡', cont: '授業・会社・開発の一覧', inside: '授業・会社・開発の中', weekly: '振り返り', set: '設定' };
   const IMG = (n) => `/assets/character/dandori-${n}.png`;
   const MOCHI = (cls = '', talk = false) => `<span class="mchar ${cls} ${talk ? 'talking' : ''}"><img class="m-n" src="${IMG('normal')}" alt=""><img class="m-b" src="${IMG('blink')}" alt=""><img class="m-t" src="${IMG('talk')}" alt=""></span>`;
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));

@@ -122,6 +122,18 @@ def run_jobs_once(db_path):
             winsort.run(con)
     except Exception as e:
         _log_error(db_path, "窓の仕分け", e)
+    try:  # K'sLife の課題は、朝7時・夜19時を過ぎたら1回ずつ読む(F23・Q39)
+        import kslife
+        with db.session(db_path) as con:
+            kslife.run(con)
+    except Exception as e:
+        _log_error(db_path, "K'sLife", e)
+    try:  # 週の振り返りのひとことは、日曜の21時を過ぎたら作る(F24・Q40)
+        import weekly
+        with db.session(db_path) as con:
+            weekly.run(con)
+    except Exception as e:
+        _log_error(db_path, "週の振り返り", e)
     try:  # 作業記録が失敗しても、通知は出す
         with db.session(db_path) as con:
             notify.check(con)

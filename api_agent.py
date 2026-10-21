@@ -92,7 +92,8 @@ def sites_list():
     import sitebrowser
     with con() as c:
         uid, pw = sitebrowser.credentials()
-        return jsonify(sites=sitebrowser.sites(c), kslife_env=bool(uid and pw))  # パスワードそのものは返さない
+        import kslife
+        return jsonify(sites=sitebrowser.sites(c), kslife_env=bool(uid and pw), kslife_last=kslife.last(c))  # パスワードそのものは返さない
 
 
 @bp.post("/sites")
@@ -102,6 +103,20 @@ def sites_add():
     with con() as c:
         try:
             sitebrowser.add_site(c, b.get("name"), b.get("url"), b.get("login") or "manual", b.get("login_host"))
+        except sitebrowser.SiteError as e:
+            raise UserError(str(e))
+        return jsonify(sites=sitebrowser.sites(c))
+
+
+@bp.patch("/sites/<path:name>")
+def sites_update(name):
+    """K'sLife の課題のページ(F23・S6-8)。"""
+    import kslife
+    import sitebrowser
+    b = body()
+    with con() as c:
+        try:
+            kslife.set_tasks_url(c, name, b.get("tasks_url"))
         except sitebrowser.SiteError as e:
             raise UserError(str(e))
         return jsonify(sites=sitebrowser.sites(c))

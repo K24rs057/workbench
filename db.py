@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS pending_windows (
     first_seen TEXT NOT NULL,
     ai_tried INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS kslife_items (
+    id INTEGER PRIMARY KEY,
+    course TEXT,
+    title TEXT NOT NULL,
+    due_at TEXT,
+    notice_id INTEGER,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS weekly_reviews (
+    week_start TEXT PRIMARY KEY,
+    comment TEXT,
+    made_at TEXT,
+    error TEXT
+);
 CREATE TABLE IF NOT EXISTS links (
     id INTEGER PRIMARY KEY,
     container_id INTEGER NOT NULL REFERENCES containers(id),

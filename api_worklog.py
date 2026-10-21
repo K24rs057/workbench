@@ -2,7 +2,7 @@
 import json
 from datetime import datetime
 
-from flask import jsonify
+from flask import jsonify, request
 
 import containers
 import mails
@@ -130,7 +130,7 @@ def notices_list():
             if r["kind"] == "window":
                 pw = c.execute("SELECT title FROM pending_windows WHERE id = ?", (r["pending_window_id"],)).fetchone()
                 item["pattern"] = pw["title"].split("|", 1)[1] if pw else ""
-            elif r["kind"] in ("候補日", "ブリーフの締切"):
+            elif r["kind"] in ("候補日", "ブリーフの締切", "K'sLife の課題"):
                 item["data"] = json.loads(r["body"])
             elif r["kind"] == "バイト先の質問":
                 m = c.execute("SELECT sender FROM messages WHERE id = ?", (r["message_id"],)).fetchone()
@@ -154,6 +154,12 @@ def notices_answer(nid):
             mails.answer_candidate(c, n, b.get("index"), bool(b.get("none")))
         elif n["kind"] == "自動で完了":  # お知らせなので [わかった] で消すだけ。タスクは「自動で完了」の欄に残る
             c.execute("UPDATE notices SET answered = 1 WHERE id = ?", (nid,))
+        elif n["kind"] == "K'sLife の課題":  # F23:入れ物を選んでタスクにする/いらない
+            import kslife
+            try:
+                kslife.answer(c, n, b.get("container_id"), bool(b.get("none")))
+            except ValueError as e:
+                raise UserError(str(e))
         elif n["kind"] == "ブリーフの締切":  # ブリーフが見つけた締切:入れ物を選んでタスクにする/いらない
             import brief
             try:
@@ -166,6 +172,46 @@ def notices_answer(nid):
             except ValueError as e:
                 raise UserError(str(e))
         return jsonify(ok=True)
+
+
+# ---------- 週の振り返り(F24・A41・A42) ----------
+@bp.get("/weekly")
+def weekly_view():
+    import weekly
+    from datetime import date
+    w = request.args.get("week")
+    try:
+        ws = weekly.monday(date.fromisoformat(w)) if w else weekly.due_week(datetime.now())
+    except ValueError:
+        raise UserError("週の日付がちがいます")
+    with con() as c:
+        return jsonify(weekly.compute(c, ws))
+
+
+@bp.post("/weekly/<week>/comment")
+def weekly_comment(week):
+    import weekly
+    from datetime import date
+    try:
+        ws = weekly.monday(date.fromisoformat(week))
+    except ValueError:
+        raise UserError("週の日付がちがいます")
+    with con() as c:
+        weekly.make_comment(c, ws)
+        return jsonify(weekly.compute(c, ws))
+
+
+# ---------- K'sLife の課題(F23・A43) ----------
+@bp.post("/kslife/read")
+def kslife_read():
+    import kslife
+    import sitebrowser
+    with con() as c:
+        try:
+            n = kslife.read(c)
+        except sitebrowser.SiteError as e:
+            raise UserError(str(e))
+        return jsonify(added=n, last=kslife.last(c))
 
 
 @bp.get("/window-rules")

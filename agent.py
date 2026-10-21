@@ -280,6 +280,11 @@ def greeting(con, today=None, brief_url=None):
     trouble = [n["text"] for n in t.get("notices", []) if n.get("kind") in ("error", "sync")]
     if trouble:
         lines.append("段取りさん:" + trouble[0])
+    if today.weekday() == 0:  # 月曜は、先週の振り返りができていれば知らせる(F24)
+        from datetime import timedelta
+        last_week = (today - timedelta(days=7)).isoformat()
+        if con.execute("SELECT 1 FROM weekly_reviews WHERE week_start = ? AND comment IS NOT NULL", (last_week,)).fetchone():
+            lines.append("先週の振り返りができています(左の「振り返り」)")
     text = "おはよう。今日の段取りだよ。\n" + "\n".join("・" + x for x in lines)
     if brief_url:
         text += f"\nくわしくはブリーフを見てね:{brief_url}"

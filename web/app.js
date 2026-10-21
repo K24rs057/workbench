@@ -4,6 +4,7 @@ const IC = {
   sched: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4.5" width="14" height="12.5" rx="2"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4"/></svg>',
   mail: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4.5" width="15" height="11" rx="1.8"/><path d="m3 5.5 7 5.5 7-5.5"/></svg>',
   box: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7.5h14V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M2.5 4.5h15v3h-15z"/><path d="M8 11h4"/></svg>',
+  weekly: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 16.5h13"/><path d="M5.5 13.5v-3M9 13.5V6.5M12.5 13.5v-5M16 13.5V4"/></svg>',
   set: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6"/></svg>',
   brand: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4.5" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><path d="m8.5 11 1.5 1.5 3-3M8.5 16.5l1.5 1.5 3-3"/><path d="M15 11.5h1.5M15 17h1.5"/></svg>',
 };
@@ -18,6 +19,7 @@ const SCREENS = [
   ['sched', '予定', IC.sched],
   ['mail', '連絡', IC.mail],
   ['cont', '授業・会社・開発', IC.box, '授業など'],
+  ['weekly', '振り返り', IC.weekly, '振り返り'],
   ['set', '設定', IC.set],
 ];
 const WEEK = '日月火水木金土';
@@ -275,10 +277,20 @@ async function mailSection() {
     <div class="hint" style="margin:2px 0 8px">${esc(gtext)}${ms.gmail_error ? `<br><span class="late">${esc(ms.gmail_error)}</span>` : ''}</div>
     <div class="kv"><span>カレンダー</span><span>${g.calendar ? '許可済み(予定の読み書き)' : g.state === '許可済み' ? 'まだ許可していません。上の [許可し直す] を押して、カレンダーの予定の表示と編集も許可してください' : 'Gmail と一緒に許可します'}</span></div></div>`;
 }
+function ksRows(x, last) {  // K'sLife の課題のページ(F23・S6-8)
+  const t = (iso) => iso.replace('T', ' ').slice(5, 16).replace('-', '/');
+  const st = !x.tasks_url ? 'まだ読みません(課題のページを入れると、朝7時と夜19時ごろに読みます)'
+    : !last ? '朝7時と夜19時ごろに読みます。まだ読んでいません'
+    : last.error ? `<span class="late">最後に読もうとした ${t(last.at)}:${esc(last.error)}</span>` : `朝7時と夜19時ごろに読みます ・ 最後に読んだ ${t(last.at)}(新しい課題 ${last.count}件)`;
+  return `<div class="krow" style="grid-template-columns:120px minmax(0,1fr)"><span class="hint">課題のページ</span><input class="nmin" style="border-color:var(--line2)" value="${esc(x.tasks_url || '')}" data-sitetasks="${esc(x.name)}" placeholder="K'sLife の中の、課題の一覧のアドレス" aria-label="課題のページのアドレス"></div>
+    <div class="krow" style="grid-template-columns:120px minmax(0,1fr) auto"><span class="hint">課題の読み込み</span><span class="hint">${st}</span>${x.tasks_url ? '<button class="btn sm" data-ksread>今すぐ読む</button>' : ''}</div>
+    <div class="hint" style="margin:0 0 8px">K'sLife には何も書きこまず、読むだけです。見つけた課題は、連絡の「確認してほしいこと」に出ます。</div>`;
+}
 async function sitesSection() {
   const d = await api('GET', '/sites');
   const rows = d.sites.map((x) => `<div class="krow" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto auto auto"><b>${esc(x.name)}</b><span class="hint" style="overflow-wrap:anywhere">${esc(x.url)}</span>
-    <span class="hint">${x.login === 'auto' ? 'パスワードで自動' : '手でログイン'}</span><button class="btn sm" data-sitewin="${esc(x.name)}">専用の窓で開く</button><button class="link danger" data-sitedel="${esc(x.name)}">外す</button></div>`).join('');
+    <span class="hint">${x.login === 'auto' ? 'パスワードで自動' : '手でログイン'}</span><button class="btn sm" data-sitewin="${esc(x.name)}">専用の窓で開く</button><button class="link danger" data-sitedel="${esc(x.name)}">外す</button></div>
+    ${x.login === 'auto' ? ksRows(x, d.kslife_last) : ''}`).join('');
   return `<div class="sset"><h3>サイト(モッチが開けるサイト)</h3>${rows || '<div class="hint">まだありません。</div>'}
     <div class="krow" style="grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto auto"><input class="nmin" id="sitename" placeholder="名前(K'sLife など)" style="border-color:var(--line2)"><input class="nmin" id="siteurl" placeholder="https://…" style="border-color:var(--line2)">
     <select id="sitelogin"><option value="manual">手でログイン</option><option value="auto">パスワードで自動(K'sLife だけ)</option></select><button class="btn sm" data-siteadd>足す</button></div>
@@ -379,6 +391,7 @@ async function addTaskFromTop() {
 const ASK_GROUPS = {
   window: ['どれの作業?', '初めて見た窓です。一度答えれば、次からは聞きません。[文字] で、覚える文字を変えられます'],
   ブリーフの締切: ['ブリーフが見つけた締切', 'タスクにするときは、どの授業・会社・開発のものかを選んでください'],
+  "K'sLife の課題": ["K'sLife の課題", 'K\'sLife で見つけた課題です。授業の名前が合うときは、入れる先を選んであります'],
   候補日: ['候補日', '相手に返事をして決まったら、その日を押すと予定に入ります'],
   バイト先の質問: ['どのバイト先?', '応募サイトの中継アドレスから来たメールです。一度答えれば、次からは聞きません'],
   自動で完了: ['自動で完了にしたタスク', 'ちがうときは [戻す] で未完了に戻せます'],
@@ -397,6 +410,12 @@ function askRow(n, d) {
     const x = n.data;
     return row(`<b title="${esc(x.title)}">${esc(x.title)}</b><span>${esc(x.date.slice(5).replace('-', '/'))}${x.time ? ' ' + esc(x.time) : ''}まで${x.source ? ' ・ ' + esc(x.source) : ''}</span>`,
       `${opts('bfc' + n.id)}<button class="btn sm pri" data-bfok="${n.id}">タスクにする</button><button class="btn sm" data-bfno="${n.id}">いらない</button>`);
+  }
+  if (n.kind === "K'sLife の課題") {  // F23・Q39。授業の名前が合えば入れる先を選んでおく
+    const x = n.data;
+    const pre = `<select id="ksc${n.id}" aria-label="どれの"><option value="">選ぶ…</option>${d.options.map((o) => `<option value="${o.id}" ${x.container_id === o.id ? 'selected' : ''}>${esc(o.kind)}:${esc(o.name)}</option>`).join('')}</select>`;
+    return row(`<b title="${esc(x.title)}">${esc(x.title)}</b><span>${x.course ? esc(x.course) + ' ・ ' : ''}${esc(x.due_date.slice(5).replace('-', '/'))}${x.due_time ? ' ' + esc(x.due_time) : ''}まで</span>${x.changed ? ' <span class="mk mk-warn">締切が変わった</span>' : ''}`,
+      `${pre}<button class="btn sm pri" data-ksok="${n.id}">タスクにする</button><button class="btn sm" data-ksno="${n.id}">いらない</button>`);
   }
   if (n.kind === '候補日') {
     return row(`<b title="${esc(n.data.text)}">${esc(n.data.text)}</b>`,
@@ -589,6 +608,9 @@ document.addEventListener('click', async (e) => {
       render();  // 後ろの画面からお知らせの行を消す(小窓は開いたまま)
       return;
     }
+    if (d.ksok) { const v = $(`#ksc${d.ksok}`).value; await api('POST', `/notices/${d.ksok}/answer`, { container_id: v ? +v : null }); toast('タスクにしました'); render(); return; }
+    if (d.ksno) { await api('POST', `/notices/${d.ksno}/answer`, { none: true }); toast('出さないことにしました'); render(); return; }
+    if (d.ksread !== undefined) { el.textContent = '読んでいます…'; el.disabled = true; const r = await api('POST', '/kslife/read'); toast(r.added ? `新しい課題 ${r.added}件を、確認してほしいことに入れました` : '新しい課題はありませんでした'); render(); return; }
     if (d.bfok) { const v = $(`#bfc${d.bfok}`).value; await api('POST', `/notices/${d.bfok}/answer`, { container_id: v ? +v : null }); toast('タスクにしました'); render(); return; }
     if (d.bfno) { await api('POST', `/notices/${d.bfno}/answer`, { none: true }); render(); return; }
     if (d.nok) { await api('POST', `/notices/${d.nok}/answer`, {}); render(); return; }
@@ -743,6 +765,7 @@ document.addEventListener('change', async (e) => {
       toast(v === 'ignore' ? '記録しないに直しました' : '直しました');
       return;
     }
+    if (t.dataset.sitetasks !== undefined) { await api('PATCH', `/sites/${encodeURIComponent(t.dataset.sitetasks)}`, { tasks_url: t.value }); toast('課題のページを覚えました'); render(); return; }
     if (t.dataset.rpat) { await api('PATCH', `/window-rules/${t.dataset.rpat}`, { pattern: t.value }); toast('覚える文字を直しました'); }
     if (t.dataset.kname) { await api('PATCH', `/kinds/${t.dataset.kname}`, { name: t.value }); S.kinds = null; toast('種類の名前を変えました'); }
     if (t.dataset.btname) { await api('PATCH', `/baito/${t.dataset.btname}`, { name: t.value }); toast('直しました'); }
