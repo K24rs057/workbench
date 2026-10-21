@@ -123,3 +123,12 @@ def test_api_logs_edit_and_answer(client):
 def test_foreground_runs_on_this_pc():
     s = worklog.foreground()
     assert s is None or (isinstance(s[0], str) and isinstance(s[1], str))
+
+
+def test_edge_title_is_trimmed():
+    """Edge の名前には見えない文字が入る。プロフィールの名前と「および他 ○ ページ」も削る(2026-10-22)。"""
+    z = "\u200b"
+    assert worklog.key_of("Edge", f"データのやり取り - 検索 および他 2 ページ - 個人 - Microsoft{z} Edge") == "データのやり取り - 検索"
+    assert worklog.key_of("Edge", f"cooking-logのしくみ - 個人 - Microsoft{z} Edge") == "cooking-logのしくみ"
+    assert worklog.key_of("Edge", "11章 - Microsoft Edge") == "11章"
+    assert worklog.key_of("Edge", "A - B - Microsoft Edge") == "A - B"  # プロフィールの名前でなければ削らない

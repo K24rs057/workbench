@@ -80,6 +80,8 @@ def _start_missed(con, t, today):
     """着手日の翌日までに、その入れ物に自動の作業記録が1つもない(F16・Q28。入れ物の単位で見る)。"""
     if not t["start_date"]:
         return False
+    if t["due_date"] and date.fromisoformat(t["due_date"]) < today:
+        return False  # 締切を過ぎたものは「遅れ」で知らせるので、重ねて出さない
     if date.fromisoformat(t["start_date"]) + timedelta(days=1) > today:
         return False
     return not _touched_since(con, t["container_id"], t["start_date"])

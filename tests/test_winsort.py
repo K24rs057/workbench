@@ -38,20 +38,20 @@ def test_ai_sorts_and_only_unknown_is_asked(db_path):
         return {"items": [{"key": key["workbench"], "result": "container", "container_id": wb},
                           {"key": key["Instagram"], "result": "ignore"},
                           {"key": key["何でも屋"], "result": "unknown"},
-                          {"key": key["11章 - 個人"], "result": "container", "container_id": 9999}]}  # 一覧にない番号
+                          {"key": key["11章"], "result": "container", "container_id": 9999}]}  # 一覧にない番号
 
     with db.session(db_path) as con:
         assert con.execute("SELECT COUNT(*) FROM notices").fetchone()[0] == 0  # すぐには聞かない
         assert winsort.run(con, runner=fake, now=T0 + timedelta(minutes=5)) == 2
         # Claude に渡すのは、アプリ名と短くした文字と入れ物の一覧だけ
         assert set(seen["prompt"]) == {"windows", "containers"}
-        assert {w["name"] for w in seen["prompt"]["windows"]} == {"workbench", "Instagram", "何でも屋", "11章 - 個人"}
+        assert {w["name"] for w in seen["prompt"]["windows"]} == {"workbench", "Instagram", "何でも屋", "11章"}
         rules = {r["pattern"]: dict(r) for r in con.execute("SELECT * FROM window_rules")}
         assert rules["workbench"]["container_id"] == wb and rules["workbench"]["by_ai"] == 1 and rules["workbench"]["ai_seen"] == 0
         assert rules["Instagram"]["ignore"] == 1
         asked = sorted(n["body"] for n in con.execute("SELECT * FROM notices WHERE kind = 'window'"))
         assert len(asked) == 2 and "何でも屋" in asked[1] + asked[0] and any("11章" in a for a in asked)  # 分からない・番号ちがいは聞く
-        assert set(pending(con)) == {"何でも屋", "11章 - 個人"}  # 決まった窓の名前は消す
+        assert set(pending(con)) == {"何でも屋", "11章"}  # 決まった窓の名前は消す
         # 次からは決まりで記録する
         worklog.tick(con, ("VS Code", "x.py - workbench - Visual Studio Code"), T0 + timedelta(minutes=6))
         assert worklog.current(con)["container_id"] == wb
@@ -105,19 +105,19 @@ def test_old_questions_are_sorted_once(db_path):
 def test_api_shows_ai_notice_and_can_fix(client, db_path):
     wb, cls = setup(db_path)
     with db.session(db_path) as con:
-        key = pending(con)["11章 - 個人"]
+        key = pending(con)["11章"]
         ig = pending(con)["Instagram"]
         winsort.run(con, runner=lambda s, p: {"items": [{"key": key, "result": "container", "container_id": wb}, {"key": ig, "result": "ignore"}]}, now=T0 + timedelta(minutes=5))
     d = client.get("/api/notices").get_json()
-    assert {a["pattern"] for a in d["ai"]} == {"11章 - 個人", "Instagram"}
+    assert {a["pattern"] for a in d["ai"]} == {"11章", "Instagram"}
     assert client.get("/api/messages/summary").get_json()["asks"] == 2 + 1  # 聞いている2件と、AI のお知らせ1行
-    rid = next(a["id"] for a in d["ai"] if a["pattern"] == "11章 - 個人")
+    rid = next(a["id"] for a in d["ai"] if a["pattern"] == "11章")
     assert client.patch(f"/api/window-rules/{rid}", json={"container_id": cls}).status_code == 200  # 選び直す
     assert client.patch(f"/api/window-rules/{rid}", json={"container_id": 9999}).status_code == 400
     client.post("/api/window-rules/ai-seen")
     assert client.get("/api/notices").get_json()["ai"] == []
     rules = {r["pattern"]: r for r in client.get("/api/window-rules").get_json()}
-    assert rules["11章 - 個人"]["container_id"] == cls and rules["11章 - 個人"]["by_ai"] == 0  # 直したら本人が決めたもの
+    assert rules["11章"]["container_id"] == cls and rules["11章"]["by_ai"] == 0  # 直したら本人が決めたもの
     assert rules["Instagram"]["by_ai"] == 1
     client.patch(f"/api/window-rules/{rules['Instagram']['id']}", json={"ignore": True})
 

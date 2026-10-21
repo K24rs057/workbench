@@ -20,6 +20,8 @@ APP_NAMES = {
     "claude.exe": "Claude",
 }
 SUFFIXES = [" - Visual Studio Code", " - Google Chrome", " - Microsoft Edge", " - Word", " - Excel", " - PowerPoint", " - メモ帳"]
+INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))  # Edge の名前には見えない文字が入る
+EDGE_PROFILES = {"個人", "仕事", "職場", "学校", "Personal", "Work", "School"}
 SKIP_TITLES = {"", "タスク スイッチング", "Program Manager", "スタート", "検索", "通知センター"}
 
 
@@ -71,7 +73,7 @@ def _app_name(pid):
 # ---------- 決まり ----------
 def key_of(app, title):
     """窓の名前から、覚える文字(決まりの候補)を取り出す。"""
-    t = title
+    t = title.translate(INVISIBLE)
     for s in SUFFIXES:
         if t.endswith(s):
             t = t[: -len(s)]
@@ -79,6 +81,11 @@ def key_of(app, title):
     if app == "VS Code":
         parts = [p.strip() for p in t.split(" - ")]
         t = parts[-1] if len(parts) > 1 else parts[0]   # 開いているフォルダ
+    elif app == "Edge":
+        t = re.sub(r"\s*および他\s*\d+\s*ページ", "", t)  # 「データのやり取り - 検索 および他 2 ページ - 個人」
+        parts = [p.strip() for p in t.split(" - ")]
+        if len(parts) > 1 and parts[-1] in EDGE_PROFILES:
+            t = " - ".join(parts[:-1])
     elif app in ("Word", "Excel", "PowerPoint"):
         t = re.sub(r"\.(docx?|xlsx?|pptx?)$", "", t)    # ファイル名
     return t.strip(" ●*")

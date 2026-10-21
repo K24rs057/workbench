@@ -25,6 +25,8 @@ AFTER_RE = re.compile(r"^(\d{1,2})日後(?:まで)?$")
 HM_RE = re.compile(r"^(\d{1,2}):(\d{2})(?:まで)?$")
 H_RE = re.compile(r"^(\d{1,2})時(半|(\d{1,2})分)?(?:まで)?$")
 SEP_RE = re.compile(r"[\s　]+")
+# 言葉の頭にくっついた締切:「28日にスライドの下書き」「明日までにES」「金曜に提出」。曜日は「曜」まで書いたときだけ(「日本語」を日曜と読まないため)
+PREFIX_RE = re.compile(rf"^(今日|きょう|明日|あした|あす|明後日|あさって|\d{{1,2}}日後|(?:\d{{4}}[/-])?\d{{1,2}}[/月]\d{{1,2}}日?|\d{{1,2}}日|(?:来週|再来週)?の?[{WEEK}]曜日?)(?:までに|まで|に)?(.+)$")
 
 SYSTEM = """あなたは、タスク管理アプリに打たれた1行から、タスク名・締切・入れ物を読み取る係です。
 - date は締切の日付(YYYY-MM-DD)。「金」「月末」「再来週の頭」など、どんな書き方でも今日の日付をもとに読む。書いていなければ null
@@ -148,6 +150,9 @@ def parse_rules(text, choices, today, fixed_container=False):
         if d is None and (got := read_date(w, today)):
             d = got
             continue
+        if d is None and (m := PREFIX_RE.match(w)) and not m.group(2).startswith("の") and (got := read_date(m.group(1), today)):
+            d = got  # 「28日に」は締切として読み、残りをタスク名にする
+            w = m.group(2)
         if tm is None and (got := read_time(w)):
             tm = got
             continue

@@ -183,3 +183,31 @@ def test_mochi_can_set_start_date(client, db_path):
     agent.ask(db_path, "原稿は11/1から始める", "トップ", "http://localhost", runner=runner, wait=True, app=client.application)
     with db.session(db_path) as con:
         assert tasks.get(con, tid)["start_date"] == "2026-11-01"
+
+
+# ---------- 小さな直し(2026-10-22) ----------
+def test_overdue_task_does_not_get_start_missed(db_path, monkeypatch):
+    """締切を過ぎたタスクには「着手日を過ぎた」を重ねて出さない(「遅れ」だけ)。"""
+    monkeypatch.setenv("DANDORI_NO_TOAST", "1")
+    db.init(db_path)
+    with db.session(db_path) as con:
+        import containers
+        import tasks
+        cid = containers.add_container(con, "未分類のもの", con.execute("SELECT id FROM kinds WHERE name = '開発'").fetchone()[0])
+        tid = tasks.add(con, {"container_id": cid, "name": "卒論", "due_date": "2026-10-22", "start_date": "2026-10-22"})
+        con.execute("UPDATE tasks SET created_at = '2026-10-21 10:00:00' WHERE id = ?", (tid,))
+        assert notify.marks(con, date(2026, 10, 23)).get(tid) != "着手日を過ぎた"
+        assert not [m for m in notify.check(con, datetime(2026, 10, 23, 9, 0)) if m[0] == "着手日を過ぎた"]
+
+
+@pytest.mark.parametrize("text, title, due", [
+    ("28日にスライドの発表があるから、それの下書き", "スライドの発表があるから、それの下書き", "2026-10-28"),
+    ("明日までにES", "ES", "2026-10-22"),
+    ("金曜に提出", "提出", "2026-10-23"),
+    ("10/28にレポート", "レポート", "2026-10-28"),
+    ("日本語の勉強", "日本語の勉強", None),      # 「日」だけでは日曜と読まない
+    ("今日の振り返り", "今日の振り返り", None),  # 「今日の〜」は締切ではない
+])
+def test_date_stuck_to_the_word(text, title, due):
+    got = quick.parse_rules(text, [], date(2026, 10, 21))
+    assert (got["title"], got["date"]) == (title, due)
