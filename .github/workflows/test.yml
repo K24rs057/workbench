@@ -1,0 +1,20 @@
+# push のたびに、本番と同じ Windows で自動テストを走らせる(テストの工程 2026-10-21 決定 A)
+# 本物の .env・Google・Claude・Outlook にはつながない(テストはすべて作り物を使う)
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 部品を入れる
+        run: python -m pip install flask google-auth google-auth-oauthlib google-api-python-client pywin32 pytest
+      - name: 自動テスト
+        run: python -m pytest -q
