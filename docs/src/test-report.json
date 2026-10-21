@@ -52,6 +52,12 @@
        "走らせた数 168件(条件を変えて何回か走るものを含む)・単体 104・結合 40。python -m pytest、Python 3.11、Windows 11"
       ],
       [
+       "GitHub Actions",
+       "168",
+       "168",
+       "push のたびに GitHub の Windows のサーバー(windows-latest)で同じ自動テストを走らせる。初回 2026-10-21:168 passed(1分55秒)"
+      ],
+      [
        "画面での確認",
        "24",
        "21",
