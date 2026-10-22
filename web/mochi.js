@@ -95,7 +95,7 @@
     const logH = (M.log.length ? '' : '<div class="cm ai">なにか手伝う? 頼まれたら、調べて、やって、終わったら報告するよ。<div class="src">消す・予定を足すときは、先に確認するよ。やったことは元に戻せるよ</div></div>') +
       M.log.map(msgHtml).join('') + (M.busy && !running() ? `<div class="cm ai wait">${dots}</div>` : '');
     const sugH = `<div class="csug">${suggestions().map((x) => `<button data-mq="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
-    const inH = '<div class="cin"><input id="agin" placeholder="モッチに話しかける" autocomplete="off" aria-label="モッチに話しかける"><button class="send" data-msend aria-label="送る"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg></button></div>';
+    const inH = '<div class="cin"><textarea id="agin" rows="1" placeholder="モッチに話しかける" autocomplete="off" aria-label="モッチに話しかける(Enter で送る・Shift+Enter で改行)"></textarea><button class="send" data-msend aria-label="送る"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg></button></div>';
     const newB = M.log.length ? '<button data-mnew>新しく話す</button>' : '';
     const app = q('.app'), sp = q('#agp');
     app.classList.toggle('ag', side);
@@ -109,9 +109,17 @@
     placeNear(q('#chat'), pos); placeNear(q('#bub'), pos);
     if (M.open) {
       const lg = q('#aglog'); lg.scrollTop = lg.scrollHeight;
-      const inp = q('#agin'); inp.value = val;
+      const inp = q('#agin'); inp.value = val; grow(inp);
       if (foc || M.wantFocus) { inp.focus(); M.wantFocus = false; }
     }
+  }
+
+  // 書いた行に合わせて欄を伸ばす。5行ぶん(CSS の max-height)より長いときは欄の中で動かす(S7-2 1.09)
+  function grow(inp) {
+    inp.style.height = 'auto';
+    const max = parseFloat(getComputedStyle(inp).maxHeight);
+    inp.style.height = Math.min(inp.scrollHeight, max) + 'px';
+    inp.style.overflowY = inp.scrollHeight > max ? 'auto' : 'hidden';
   }
 
   // ---------- 話す ----------
@@ -153,7 +161,7 @@
     }
     if (d.mundo) { undo(d.mundo); return; }
     if (d.mq) { ask(d.mq); return; }
-    if (d.msend !== undefined) { const i = q('#agin'); const v = i.value; i.value = ''; M.wantFocus = true; ask(v); return; }
+    if (d.msend !== undefined) { const i = q('#agin'); const v = i.value; i.value = ''; grow(i); M.wantFocus = true; ask(v); return; }
     if (d.mok) { action(d.mok, 'confirm'); return; }
     if (d.mno) { action(d.mno, 'cancel'); return; }
     if (d.mnew !== undefined) { M.log = await call('DELETE', '/agent/messages'); M.wantFocus = true; render(); return; }
@@ -164,8 +172,10 @@
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && M.open && M.mode !== 'side' && !q('.ov')) { M.open = false; render(); return; }
-    if (e.key === 'Enter' && !e.isComposing && e.target.id === 'agin') { const v = e.target.value; e.target.value = ''; M.wantFocus = true; ask(v); }
+    // Enter で送る。Shift+Enter は改行(textarea のふつうの動き)。変換中の Enter は送らない
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.id === 'agin') { e.preventDefault(); const v = e.target.value; e.target.value = ''; grow(e.target); M.wantFocus = true; ask(v); }
   });
+  document.addEventListener('input', (e) => { if (e.target.id === 'agin') grow(e.target); });
 
   // ---------- 運ぶ ----------
   let DG = null;
