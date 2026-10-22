@@ -475,10 +475,11 @@ def _base(path):
 
 @tool("folders", "read", "PC の中で探してよいフォルダの一覧(本人が設定で登録したものだけ)", label="探してよいフォルダを見ています")
 def t_folders(a, ctx):
-    return _files(lambda lf, c: {"folders": lf.folders(c)})
+    return _files(lambda lf, c: {"folders": lf.folders(c),
+                                 "note": "どのフォルダも、中のフォルダを全部含む。場所が分からなくても、まず file_search で名前の言葉を入れて探す"})
 
 
-@tool("file_search", "read", "登録したフォルダの中のファイルを、名前(フォルダの名前も含む)の言葉で探す。空白で区切ると全部を含むもの。新しい順に20件。中身は読まない",
+@tool("file_search", "read", "登録したフォルダの中(中のフォルダも全部)のファイルを、名前とフォルダの名前の言葉で探す。空白で区切ると全部を含むもの(例「workbench basic」)。新しい順に20件。中身は読まない。場所が分からないときも、まずこれで探す",
       {"words": S, "ext": {"type": "array", "items": S, "description": "拡張子でしぼる(例 [\"pptx\", \"pdf\"])"}}, ["words"],
       label=lambda a: f"ファイルを探しています(「{a.get('words', '')}」)")
 def t_file_search(a, ctx):
