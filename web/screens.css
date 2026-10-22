@@ -152,7 +152,9 @@
 .mail.on{background:var(--blue-wash)}
 .mail .f{font-weight:500;display:flex;gap:6px;align-items:center;font-size:12.5px}
 .mail .f .from{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mail .f span:last-child{margin-left:auto;color:var(--sub);font-size:11.5px;font-weight:400}
+.mail .f > span:last-child{margin-left:auto;color:var(--sub);font-size:11.5px;font-weight:400;white-space:nowrap}
+.mail .via{color:var(--faint);font-size:10.5px;margin-left:6px}  /* Outlook・Gmail のどちらから来たか(S3-3) */
+.mail .via::before{content:"・";margin-right:2px}
 .mail .s{color:var(--sub);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reader{padding:18px 22px;min-width:0;overflow-y:auto}
 .reader h2{font-size:16px;margin:0 0 4px}

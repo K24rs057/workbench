@@ -174,6 +174,7 @@ def test_mail_screen_api(client, db_path):
     assert len(lst["main"]) == 1 and len(lst["other"]) == 1
     other = lst["other"][0]
     detail = client.get(f"/api/messages/{other['id']}").get_json()
+    assert other["source"] == "Outlook" and detail["source"] == "Outlook"  # 連絡の画面に、どこから来たかを出す(S3-3・S3-4 1.08)
     assert detail["tasks"][0]["name"] == "説明会のご案内"
     cid = client.post("/api/containers", json={"name": "キャリア", "kind_id": 2}).get_json()["id"]
     client.patch(f"/api/messages/{other['id']}", json={"container_id": cid})

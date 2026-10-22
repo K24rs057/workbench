@@ -502,7 +502,7 @@ async function mailView() {
   } else {
     const d = await api('GET', '/messages');
     S.mails = d;
-    const row = (m) => `<button class="mail ${S.mail === m.id ? 'on' : ''}" data-mail="${m.id}"><div class="f"><span class="mk mk-pick" style="margin:0">${esc(m.container || CATN[m.category] || m.category)}</span><span class="from">${esc(m.sender.split('@')[0])}</span><span>${esc(m.received_at.slice(5, 10).replace('-', '/'))}</span></div><div class="s">${esc(m.subject)}${m.ai_failed ? ' <span class="mk mk-warn">読み取れなかった</span>' : ''}</div></button>`;
+    const row = (m) => `<button class="mail ${S.mail === m.id ? 'on' : ''}" data-mail="${m.id}"><div class="f"><span class="mk mk-pick" style="margin:0">${esc(m.container || CATN[m.category] || m.category)}</span><span class="from">${esc(m.sender.split('@')[0])}</span><span>${esc(m.received_at.slice(5, 10).replace('-', '/'))}${m.source ? `<span class="via">${esc(m.source)}</span>` : ''}</span></div><div class="s">${esc(m.subject)}${m.ai_failed ? ' <span class="mk mk-warn">読み取れなかった</span>' : ''}</div></button>`;
     mid = (d.main.length ? d.main.map(row).join('') : '<div class="hint" style="padding:12px 14px">授業・奨学金などのメールは、まだありません。</div>') +
       `<button class="mail" data-mother style="color:var(--sub)"><div class="f"><span>その他の大学のお知らせ ${d.other.length}件 ${S.otherOpen ? '▾' : '▸'}</span></div><div class="s">授業・奨学金・試合のチケットに当てはまらない大学からのメール(学内連絡の一斉配信など)</div></button>` +
       (S.otherOpen ? d.other.map(row).join('') : '');
@@ -513,7 +513,7 @@ async function mailView() {
         const body = m.body_gone ? '<p class="hint">本文は90日で消えています。Outlook または Gmail で開いてください。</p>' : `<div class="mbody">${esc(m.body).slice(0, 20000)}</div>`;
         const links = m.links.length ? `<div class="sh" style="margin-top:12px">本文の中のリンク</div><div class="links">${m.links.slice(0, 8).map((u) => `<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, '').slice(0, 40))}</a>`).join('')}</div>` : '';
         const made = m.tasks.length || m.held.length ? `<div class="sh" style="margin-top:12px">このメールから入ったもの</div>${m.tasks.map((t) => `<div class="tl"><span>タスク</span><span>${esc(t.name)} ${esc(t.due_date || '')} ${esc(t.due_time || '')} <button class="link danger" data-mtdel="${t.id}">消す</button></span></div>`).join('')}${m.held.map((h) => `<div class="tl"><span>予定</span><span>${esc(h.title)} ${esc(h.start_at.replace('T', ' '))} <button class="link danger" data-hdel="${h.id}">消す</button></span></div>`).join('')}` : '';
-        right = `<div class="reader"><h2>${esc(m.subject)}</h2><div class="meta">${esc(CATN[m.category] || m.category)} ・ ${esc(m.sender)} ・ ${esc(m.received_at.replace('T', ' ').slice(0, 16))}${m.container ? ' ・ ' + esc(m.container) : ''}</div>${body}${links}${made}
+        right = `<div class="reader"><h2>${esc(m.subject)}</h2><div class="meta">${esc(CATN[m.category] || m.category)} ・ ${esc(m.sender)} ・ ${esc(m.received_at.replace('T', ' ').slice(0, 16))}${m.container ? ' ・ ' + esc(m.container) : ''}${m.source ? ' ・ ' + esc(m.source) + ' から' : ''}</div>${body}${links}${made}
           <div class="acts mact"><div><button class="btn sm" data-mresort="${m.id}">振り分けを直す</button><span>このメールは「${esc(m.container || 'その他')}」に振り分けられています。ちがうときに直します。次から、この差出人のメールは直したほうに入ります</span></div>
           <div><button class="btn sm" data-mblock="${esc(m.sender)}">この差出人は取り込まない</button><span>宣伝など、いらない差出人のときに押します。次から、この差出人のメールは段取りさんに入りません。メールそのものは消えず、設定の「止めた差出人」から戻せます</span></div></div></div>`;
       } catch (e) { S.mail = null; }
