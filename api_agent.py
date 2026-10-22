@@ -146,6 +146,36 @@ def sites_window():
     return jsonify(ok=True)
 
 
+# ---------- モッチが探せるフォルダ(設定の「フォルダ」。規程第12条・S6-9) ----------
+@bp.get("/folders")
+def folders_list():
+    import localfiles
+    with con() as c:
+        return jsonify(folders=localfiles.folders(c))
+
+
+@bp.post("/folders/pick")
+def folders_pick():
+    """[フォルダを選んで足す…]。Windows の「フォルダーの選択」の窓を出し、選んだフォルダを足す。"""
+    import localfiles
+    path = localfiles.pick_folder()
+    with con() as c:
+        if not path:
+            return jsonify(folders=localfiles.folders(c), added=None)
+        try:
+            localfiles.add_folder(c, path)
+        except localfiles.LocalFileError as e:
+            raise UserError(str(e))
+        return jsonify(folders=localfiles.folders(c), added=path)
+
+
+@bp.post("/folders/remove")
+def folders_remove():
+    import localfiles
+    with con() as c:
+        return jsonify(folders=localfiles.remove_folder(c, body().get("path")))
+
+
 @bp.get("/mochi")
 def mochi_get():
     with con() as c:

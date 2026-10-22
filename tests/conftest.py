@@ -40,6 +40,14 @@ def no_real_google(tmp_path, monkeypatch):
     gcal._extra.clear()
 
 
+@pytest.fixture(autouse=True)
+def no_real_files(tmp_path, monkeypatch):
+    """本物の Workspace・Downloads を読まない。本物の「フォルダーの選択」の窓も出さない(規程第12条)。"""
+    import localfiles
+    monkeypatch.setattr(localfiles, "HOME", tmp_path / "home")
+    monkeypatch.setattr(localfiles, "pick_folder", lambda: None)
+
+
 @pytest.fixture
 def db_path(tmp_path):
     return tmp_path / "dandori.db"

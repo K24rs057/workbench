@@ -298,6 +298,15 @@ async function sitesSection() {
     「手でログイン」のサイトは [専用の窓で開く] で、段取りさん専用の Chrome の窓にご自分でログインしておくと、モッチがその窓を使って読みます。
     「パスワードで自動」は K'sLife の1つだけです。ID とパスワードは、段取りさんのフォルダの .env に KSLIFE_ID と KSLIFE_PASSWORD としてご自分で書いてください(${d.kslife_env ? '入っています' : 'まだ入っていません'})。パスワードはモッチには見せません。</div></div>`;
 }
+async function foldersSection() {  // S6-9。モッチが探して読めるフォルダ(規程第12条)
+  const d = await api('GET', '/folders');
+  const rows = d.folders.map((f) => `<div class="krow" style="grid-template-columns:minmax(0,1fr) auto auto"><b style="overflow-wrap:anywhere;font-weight:600">${esc(f)}</b><span class="hint">中のフォルダも</span><button class="link danger" data-folderdel="${esc(f)}">外す</button></div>`).join('');
+  return `<div class="sset"><h3>フォルダ(モッチが探せるフォルダ)</h3>${rows || '<div class="hint">まだありません。ここに足すまで、モッチは PC のファイルを探せません。</div>'}
+    <div class="rowb"><button class="btn" data-folderpick>+ フォルダを選んで足す…</button><span class="hint">押すと、エクスプローラーと同じ「フォルダーの選択」の窓が開きます。マウスで選んで [フォルダーの選択] を押すだけです</span></div>
+    <div class="hint" style="margin:4px 0 0">モッチが探して読めるのは、ここに足したフォルダの中だけです(中のフォルダも含む)。読むだけで、書きかえ・消す・動かすはしません。<br>
+    読まないもの:.env、名前に password・secret・token・credential が入るファイル、鍵(.pem・.key)、.git・node_modules・隠しフォルダの中、段取りさんの data フォルダ。<br>
+    読んだ中身はその会話の中で Claude に渡るだけで、段取りさんには「どのファイルを読んだか」だけが残ります。ファイルを開くのは、確認のカードを押したときだけです。</div></div>`;
+}
 function mochiSection() {
   const st = window.Mochi ? Mochi.settings() : {};
   const sw = (key, label, aria) => `<span class="tg"><button class="sw ${st[key] === '0' ? '' : 'on'}" data-msw="${key}" aria-label="${aria}"></button>${label}</span>`;
@@ -321,6 +330,7 @@ async function setView() {
     ${await statusSection()}
     ${await mailSection()}
     ${await sitesSection()}
+    ${await foldersSection()}
     ${mochiSection()}</div>`;
 }
 
@@ -659,6 +669,8 @@ document.addEventListener('click', async (e) => {
     if (d.cand !== undefined && d.ci !== undefined) { await api('POST', `/notices/${d.cand}/answer`, { index: +d.ci }); toast('予定に入れました'); render(); return; }
     if (d.candno) { await api('POST', `/notices/${d.candno}/answer`, { none: true }); toast('入れずに閉じました'); render(); return; }
     if (d.hdel) { await api('DELETE', `/held-events/${d.hdel}`); toast('消しました。次に読んでも戻しません'); render(); return; }
+    if (d.folderpick !== undefined) { el.disabled = true; el.textContent = '窓で選んでください…'; try { const r = await api('POST', '/folders/pick'); if (r.added) toast('足しました'); } finally { render(); } return; }
+    if (d.folderdel) { if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに外す'; return; } await api('POST', '/folders/remove', { path: d.folderdel }); toast('外しました'); render(); return; }
     if (d.siteadd !== undefined) { await api('POST', '/sites', { name: $('#sitename').value, url: $('#siteurl').value, login: $('#sitelogin').value }); toast('足しました'); render(); return; }
     if (d.sitedel) { if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'ほんとうに外す'; return; } await api('DELETE', `/sites/${encodeURIComponent(d.sitedel)}`); toast('外しました'); render(); return; }
     if (d.sitewin) { toast('専用の窓を開いています…'); await api('POST', '/sites/window', { name: d.sitewin }); toast('専用の窓で開きました。ログインしたら、その窓はそのままにしておいてください'); return; }

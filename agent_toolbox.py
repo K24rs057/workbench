@@ -2,12 +2,13 @@
 
 モッチ(claude -p)は MCP サーバー(agent_tools.py)を通して、ここにある道具だけを使える。
 道具は、段取りさんの画面と同じ窓口(/api/...)を本体の中から呼ぶので、確かめ方や決まりは画面と同じになる。
-規程(第1〜11条)は、モッチへの説明だけに頼らず、ここでも守らせる:
+規程(第1〜12条)は、モッチへの説明だけに頼らず、ここでも守らせる:
 - お金・メールを送る/消す・Google の許可や設定を変える道具は、そもそも作らない(第2・5・6条)
-- 消す道具・予定を足す道具・サイトのボタン・1回の頼みで10件目からの変更は、確認が要る(第1・4・11条)
+- 消す道具・予定を足す道具・サイトのボタン・ファイルを開く・1回の頼みで10件目からの変更は、確認が要る(第1・4・11・12条)
 - 道具の答えに入る秘密らしい文字(パスワード・受検コードなど)は伏せる(第3条)
 - メール・ページの中身は「データ」として渡す(第9条)
 - 変えた操作は全部 agent_actions に残し、[元に戻す] に使う(第8条)
+- PC のファイルは、設定で登録したフォルダの中を読むだけ。開くのは確認のあと(第12条。localfiles.py)
 """
 import json
 import re
@@ -458,6 +459,51 @@ def t_site_click(a, ctx):
     return {"done": f"サイトのボタン「{name}」を押した", "page": {k: r[k] for k in ("title", "url")}}
 
 
+# ---------- PC のファイル(設定の「フォルダ」。規程第12条) ----------
+def _files(fn):
+    import localfiles
+    try:
+        with _con() as c:
+            return fn(localfiles, c)
+    except localfiles.LocalFileError as e:
+        raise ToolError(str(e))
+
+
+def _base(path):
+    return str(path or "").replace("/", "\\").rsplit("\\", 1)[-1]
+
+
+@tool("folders", "read", "PC の中で探してよいフォルダの一覧(本人が設定で登録したものだけ)", label="探してよいフォルダを見ています")
+def t_folders(a, ctx):
+    return _files(lambda lf, c: {"folders": lf.folders(c)})
+
+
+@tool("file_search", "read", "登録したフォルダの中のファイルを、名前(フォルダの名前も含む)の言葉で探す。空白で区切ると全部を含むもの。新しい順に20件。中身は読まない",
+      {"words": S, "ext": {"type": "array", "items": S, "description": "拡張子でしぼる(例 [\"pptx\", \"pdf\"])"}}, ["words"],
+      label=lambda a: f"ファイルを探しています(「{a.get('words', '')}」)")
+def t_file_search(a, ctx):
+    return _files(lambda lf, c: lf.search(c, a["words"], ext=a.get("ext")))
+
+
+@tool("file_read", "read", "ファイルの中身を読む(文字のファイル・Word・Excel・PowerPoint・PDF)。path は file_search の答えの path。長いものは頭から",
+      {"path": S}, ["path"], label=lambda a: f"「{_base(a.get('path'))}」を読んでいます")
+def t_file_read(a, ctx):
+    r = _files(lambda lf, c: lf.read(c, a["path"]))
+    r["text"] = DATA_NOTE + "\n" + r["text"]
+    return r
+
+
+@tool("file_open", "confirm", "ファイルを PC のいつものアプリで開く(確認が要る。動くファイルは開かない)", {"path": S}, ["path"], label="ファイルを開きます")
+def t_file_open(a, ctx):
+    p = _files(lambda lf, c: lf.open_file(c, a["path"]))
+    return {"done": f"「{p.name}」を開いた"}
+
+
+def _file_open_preview(a):
+    p = _files(lambda lf, c: lf.check_open(c, a["path"]))
+    return f"「{p.name}」をいつものアプリで開く"
+
+
 def _button_label(item_id):
     import sitebrowser
     try:
@@ -473,6 +519,7 @@ PREVIEW = {
     "link_delete": lambda a: "リンク「" + _row("links", a["link_id"], ["name"])["name"] + "」を消す",
     "event_add": _event_add_preview,
     "event_delete": lambda a: (lambda e: f"予定「{e['name']}」{e['date']} を Google カレンダーから消す")(_event_now(a["event_id"])),
+    "file_open": _file_open_preview,
     "work_log_delete": lambda a: "作業記録(" + _row("work_logs", a["log_id"], ["started_at"])["started_at"][:16] + ")を消す",
 }
 
@@ -492,7 +539,7 @@ def run_tool(run_id, name, args):
         run = c.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
         if not run or run["state"] != "動いている":
             return {"error": "この頼みはもう終わっています"}
-        _progress(c, run_id, t["label"])
+        _progress(c, run_id, t["label"](args) if callable(t["label"]) else t["label"])  # ファイルは、どれを読んだかを残す
         writes = c.execute("SELECT COUNT(*) FROM agent_actions WHERE run_id = ? AND state IN ('済', '確認待ち')", (run_id,)).fetchone()[0]
     if t["kind"] == "read":
         try:
@@ -507,7 +554,7 @@ def run_tool(run_id, name, args):
         with _con() as c:
             c.execute("INSERT INTO agent_actions(run_id, tool, args, preview, state, created_at) VALUES (?, ?, ?, ?, '確認待ち', ?)",
                       (run_id, name, json.dumps(args, ensure_ascii=False), what, datetime.now().isoformat(timespec="seconds")))
-        why = "10件より多くまとめて変えるので" if t["kind"] != "confirm" else "消す・予定を足す・ボタンを押す操作なので"
+        why = "10件より多くまとめて変えるので" if t["kind"] != "confirm" else "消す・予定を足す・ボタンを押す・ファイルを開く操作なので"
         return {"needs_confirmation": True, "message": f"{why}、本人の確認を待ちます。画面に確認のカードを出しました。"
                 "この操作はまだしていません。答えの中で、確認を待っていることを伝えてください"}
     try:
@@ -582,4 +629,6 @@ def tool_list():
 
 def label_of(name):
     t = TOOLS.get(name)
-    return t["label"] if t else "考えています"
+    if not t:
+        return "考えています"
+    return t["desc"] if callable(t["label"]) else t["label"]
