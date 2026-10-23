@@ -53,6 +53,48 @@
     call('PATCH', '/mochi', { [narrow() ? 'mochi_pos_narrow' : 'mochi_pos_wide']: M.pos ? JSON.stringify({ x: Math.round(M.pos.x), y: Math.round(M.pos.y) }) : '' }).catch(() => {});
   }
 
+  // ---------- 答えを形にする(S7-2 1.11) ----------
+  // **太字**・`…`・「- 」の箇条書き・「> 」の引用・見出しを形にし、ファイルの場所は押せる札、https:// はリンクにする。
+  // それ以外はそのまま文字で出す(HTML は出さない)
+  const KIND = { docx: 'doc', doc: 'doc', xlsx: 'xls', xlsm: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', ppt: 'ppt', pdf: 'pdf' };
+  const isPath = (s) => /^([A-Za-z]:\\|(Workspace|Downloads)\\)/.test(s);
+  function chip(p) {
+    const name = p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+    const ext = (name.match(/\.([A-Za-z0-9]+)$/) || [])[1];
+    const k = ext ? (KIND[ext.toLowerCase()] || '') : 'dir';
+    return `<span class="fchip" title="${esc(p)}"><button class="o" data-mfile="${esc(p)}" aria-label="${esc(name)} を開く"><i class="fi ${k}"></i><span>${esc(name)}</span></button>${ext ? `<button class="d" data-mdir="${esc(p)}" title="エクスプローラーで、このファイルがあるところを開く">フォルダ</button>` : ''}</span>`;
+  }
+  function inline(t) {
+    const re = /`([^`]+)`|\*\*(.+?)\*\*|(https?:\/\/[^\s<>"'`)\]}、。」]+)|([A-Za-z]:\\[^\s`"'<>|*?、。」)]+)/g;
+    let out = '', last = 0, m;
+    while ((m = re.exec(t))) {
+      out += esc(t.slice(last, m.index));
+      if (m[1] !== undefined) out += isPath(m[1]) ? chip(m[1]) : `<code>${esc(m[1])}</code>`;
+      else if (m[2] !== undefined) out += `<b>${inline(m[2])}</b>`;
+      else if (m[3] !== undefined) out += `<a class="url" href="${esc(m[3])}" target="_blank" rel="noopener">${esc(m[3])}</a>`;
+      else out += chip(m[4]);
+      last = re.lastIndex;
+    }
+    return out + esc(t.slice(last));
+  }
+  function rich(text) {
+    const out = []; let list = null, para = [];
+    const endPara = () => { if (para.length) { out.push(`<p>${para.join('<br>')}</p>`); para = []; } };
+    const endList = () => { if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; } };
+    for (const raw of String(text || '').split('\n')) {
+      const line = raw.trimEnd();
+      let m;
+      if ((m = line.match(/^\s*(?:[-*・])\s+(.*)$/))) { endPara(); (list = list || []).push(`<li>${inline(m[1])}</li>`); }
+      else if ((m = line.match(/^>\s?(.*)$/))) { endPara(); endList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); }
+      else if ((m = line.match(/^#{1,4}\s+(.*)$/)) || (m = line.match(/^\*\*([^*]+)\*\*$/))) { endPara(); endList(); out.push(`<h4>${inline(m[1])}</h4>`); }
+      else if (!line.trim()) { endPara(); endList(); }
+      else { endList(); para.push(inline(line)); }
+    }
+    endPara(); endList();
+    return out.join('');
+  }
+  window.MochiRich = rich;  // 試しやすいように
+
   // ---------- 描く ----------
   const dots = '<span class="dots3"><i></i><i></i><i></i></span>';
   function msgHtml(m) {
@@ -69,7 +111,9 @@
     if (r && r.pending.length) {
       extra += r.pending.map((a) => `<div class="okcard"><div class="h">やっていい?</div><div>${esc(a.preview)}</div><div class="row"><button class="btn pri sm" data-mok="${a.id}">する</button><button class="btn sm" data-mno="${a.id}">やめる</button></div></div>`).join('');
     }
-    return `<div class="cm ai ${m.state === 'あいさつ' ? 'greet' : ''}">${esc(m.text).replace(/\n/g, '<br>')}${extra}</div>`;
+    const steps = r && r.progress && r.progress.length  // 使った道具(Claude の「〜した」のように、たたんで出す)
+      ? `<details class="steps"><summary>使った道具 ${r.progress.length}つ</summary><ol>${r.progress.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : '';
+    return `${steps}<div class="cm ai ${m.state === 'あいさつ' ? 'greet' : ''}">${rich(m.text)}${extra}</div>`;
   }
   const running = () => M.log.some((m) => m.run && m.run.state === '動いている');
   let polling = false;
@@ -92,17 +136,20 @@
     const had = q('#agin'), val = had ? had.value : '', foc = had && document.activeElement === had;
     const side = M.open && M.mode === 'side';
     const talk = !!M.bub || M.busy || M.justSaid;
-    const logH = (M.log.length ? '' : '<div class="cm ai">なにか手伝う? 頼まれたら、調べて、やって、終わったら報告するよ。<div class="src">消す・予定を足すときは、先に確認するよ。やったことは元に戻せるよ</div></div>') +
-      M.log.map(msgHtml).join('') + (M.busy && !running() ? `<div class="cm ai wait">${dots}</div>` : '');
-    const sugH = `<div class="csug">${suggestions().map((x) => `<button data-mq="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
-    const inH = '<div class="cin"><textarea id="agin" rows="1" placeholder="モッチに話しかける" autocomplete="off" aria-label="モッチに話しかける(Enter で送る・Shift+Enter で改行)"></textarea><button class="send" data-msend aria-label="送る"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg></button></div>';
-    const newB = M.log.length ? '<button data-mnew>新しく話す</button>' : '';
+    const sugs = suggestions().map((x) => `<button data-mq="${esc(x)}">${esc(x)}</button>`).join('');
+    const logH = M.log.length  // 話しかける前は、まん中にモッチとひとこと(Claude アプリふう)
+      ? M.log.map(msgHtml).join('') + (M.busy && !running() ? `<div class="cm ai wait">${dots}</div>` : '')
+      : `<div class="hello">${MOCHI('hface')}<h2>今日は、なにを<br>手伝おうか?</h2><p>調べて、やって、終わったら報告するよ。消す・予定を足すときは、先に確認するよ</p><div class="hsug">${sugs}</div></div>`;
+    const sugH = '';
+    const inH = `<div class="cin"><textarea id="agin" rows="1" placeholder="${M.log.length ? 'モッチに返事をする' : 'モッチに話しかける'}" autocomplete="off" aria-label="モッチに話しかける(Enter で送る・Shift+Enter で改行)"></textarea><div class="cinr"><span class="hint">Shift+Enter で改行</span><button class="send" data-msend aria-label="送る"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9"/></svg></button></div></div>`;
+    const newB = M.log.length ? '<button class="plus" data-mnew title="新しく話す" aria-label="新しく話す">+</button>' : '<span></span>';
+    const head = (left) => `<div class="chd">${left}<span class="mid">モッチ<small>${esc(screenName())}を見ています</small></span>${newB}</div>`;
     const app = q('.app'), sp = q('#agp');
     app.classList.toggle('ag', side);
     sp.hidden = !side;
-    sp.innerHTML = side ? `<div class="aghd">${MOCHI('mface', M.busy)}モッチ<span class="sideb">${newB}<button data-mbubble title="モッチの吹き出しに戻す">吹き出しに戻す</button></span></div><div class="agctx">${esc(screenName())}を見ています</div><div class="aglog clog" id="aglog">${logH}</div>${sugH}${inH}` : '';
+    sp.innerHTML = side ? `<div class="chat inside">${head('<button class="l" data-mbubble title="モッチの吹き出しに戻す">‹ 吹き出しへ</button>')}<div class="clog" id="aglog">${logH}</div>${sugH}${inH}</div>` : '';
     const chat = M.open && !side
-      ? `<div class="chat" id="chat" role="dialog" aria-label="モッチと話す"><div class="chd"><b>モッチ</b><span class="ctx">${esc(screenName())}を見ています</span><span class="chr">${newB}<button data-mside title="右のサイドバーに移す">サイドバーに移す</button></span></div><div class="clog" id="aglog">${logH}</div>${sugH}${inH}</div>`
+      ? `<div class="chat" id="chat" role="dialog" aria-label="モッチと話す">${head('<button class="l" data-mside title="右のサイドバーに移す">サイドバーへ ›</button>')}<div class="clog" id="aglog">${logH}</div>${sugH}${inH}</div>`
       : (!M.open && M.bub ? `<div class="bub" id="bub" role="status"><button data-mbubopen style="text-align:left">${esc(M.bub)}</button><button class="x" data-mbubx aria-label="吹き出しを消す">×</button></div>` : '');
     const pos = mascotPos();
     host.innerHTML = chat + (side ? '' : `<button class="mascot" data-mopen aria-label="モッチと話す(押したまま動かすと運べます)" aria-expanded="${M.open}" title="モッチ(押すと話せます。押したまま動かすと好きな場所に運べます)" style="left:${pos.x}px;top:${pos.y}px">${MOCHI('', talk)}${!M.open && M.log.length ? '<span class="keep" title="話の続きがあります"></span>' : ''}</button>`);
@@ -160,6 +207,13 @@
       return;
     }
     if (d.mundo) { undo(d.mundo); return; }
+    if (d.mfile || d.mdir) {  // 答えの中のファイルの札(本人が押したので、確認のカードは出さない。開けるかは本体が確かめる)
+      try {
+        const r = await call('POST', d.mfile ? '/files/open' : '/files/reveal', { path: d.mfile || d.mdir });
+        if (window.toast) toast(d.mfile ? `「${r.opened}」を開きました` : 'エクスプローラーで開きました');
+      } catch (err) { if (window.toast) toast(err.message); }
+      return;
+    }
     if (d.mq) { ask(d.mq); return; }
     if (d.msend !== undefined) { const i = q('#agin'); const v = i.value; i.value = ''; grow(i); M.wantFocus = true; ask(v); return; }
     if (d.mok) { action(d.mok, 'confirm'); return; }

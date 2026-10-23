@@ -176,6 +176,30 @@ def folders_remove():
         return jsonify(folders=localfiles.remove_folder(c, body().get("path")))
 
 
+# ---------- モッチの答えの中のファイルの札(S7-2 1.11・A47・A48) ----------
+@bp.post("/files/open")
+def files_open():
+    """札を本人が押したとき。登録したフォルダの中だけ。本人の操作なので確認のカードは出さない。"""
+    import localfiles
+    with con() as c:
+        try:
+            p = localfiles.open_link(c, body().get("path"))
+        except localfiles.LocalFileError as e:
+            raise UserError(str(e))
+    return jsonify(opened=p.name)
+
+
+@bp.post("/files/reveal")
+def files_reveal():
+    import localfiles
+    with con() as c:
+        try:
+            p = localfiles.reveal(c, body().get("path"))
+        except localfiles.LocalFileError as e:
+            raise UserError(str(e))
+    return jsonify(shown=p.name)
+
+
 @bp.get("/mochi")
 def mochi_get():
     with con() as c:

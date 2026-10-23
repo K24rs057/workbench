@@ -104,14 +104,23 @@ def _secret_file(p):
     return n == ".env" or n.startswith(".env.") or SECRET_NAME.search(n) is not None or p.suffix.lower() in KEY_EXT
 
 
-def _inside(con, path):
-    """登録したフォルダの中のファイルか確かめて、本当の場所を返す(.. やリンクで外に出られない)。"""
+def _place(con, path):
+    """書かれた場所を、本当の場所にする。C:\\ から始まる場所か、登録したフォルダの名前から始まる場所(Workspace\\… など)。"""
     if not path:
         raise LocalFileError("ファイルの場所が要ります")
-    p = Path(path).expanduser()
+    p = Path(str(path).strip().strip('"').strip("'")).expanduser()
     if not p.is_absolute():
-        raise LocalFileError("ファイルの場所は、file_search の答えにある場所をそのまま使ってください")
-    p = p.resolve()
+        parts = p.parts
+        base = next((Path(f) for f in folders(con) if parts and Path(f).name.lower() == parts[0].lower()), None)
+        if not base:
+            raise LocalFileError("ファイルの場所は、file_search の答えにある場所をそのまま使ってください")
+        p = base.joinpath(*parts[1:])
+    return p.resolve()
+
+
+def _inside(con, path, folder=False):
+    """登録したフォルダの中のファイル(folder=True ならフォルダも)か確かめて、本当の場所を返す(.. やリンクで外に出られない)。"""
+    p = _place(con, path)
     roots = [Path(f).resolve() for f in folders(con)]
     root = next((r for r in roots if p == r or r in p.parents), None)
     if not root:
@@ -123,6 +132,10 @@ def _inside(con, path):
             raise LocalFileError("そのフォルダの中(隠しフォルダ・.git・段取りさんの data など)は読みません")
     if p == DATA_DIR or DATA_DIR in p.parents:
         raise LocalFileError("段取りさんの data フォルダは読みません")
+    if folder and p.is_dir():
+        if p != root and _skip_dir(p):
+            raise LocalFileError("そのフォルダ(隠しフォルダ・.git など)は開きません")
+        return p
     if _secret_file(p):
         raise LocalFileError("パスワードや鍵が入っていそうなファイルなので、読みません(規程第3条)")
     if not p.is_file():
@@ -249,7 +262,24 @@ def check_open(con, path):
 
 
 def open_file(con, path, opener=None):
-    """いつものアプリで開く(確認のあと)。"""
+    """いつものアプリで開く(モッチからは確認のあと)。"""
     p = check_open(con, path)
     (opener or os.startfile)(str(p))
+    return p
+
+
+def open_link(con, path, opener=None):
+    """モッチの答えの中の札を、本人が押したとき(S7-2 1.11)。ファイルはいつものアプリで、フォルダはエクスプローラーで開く。"""
+    p = _inside(con, path, folder=True)
+    if p.is_file() and p.suffix.lower() in RUN_EXT:
+        raise LocalFileError("動くファイル(.exe・.bat・.py など)は開きません")
+    (opener or os.startfile)(str(p))
+    return p
+
+
+def reveal(con, path, runner=None):
+    """札の [フォルダ]。エクスプローラーを開き、そのファイルを選んだ形にする。"""
+    p = _inside(con, path, folder=True)
+    args = ["explorer", str(p)] if p.is_dir() else ["explorer", f"/select,{p}"]
+    (runner or subprocess.Popen)(args)
     return p

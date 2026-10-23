@@ -170,3 +170,26 @@ def test_settings_api(tree, client, db_path, monkeypatch):
     assert client.post("/api/folders/pick").status_code == 400  # 同じフォルダ
     d = client.post("/api/folders/remove", json={"path": str(ws)}).get_json()
     assert str(ws) not in d["folders"]
+
+
+def test_links_in_answers_open_only_inside(tree, client, db_path, monkeypatch):
+    """モッチの答えの中の札(S7-2 1.11)。本人が押すので確認はないが、開けるのは登録したフォルダの中だけ。"""
+    ws, desk = tree
+    opened, ran = [], []
+    monkeypatch.setattr(os, "startfile", opened.append, raising=False)
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", ran.append)
+    doc = ws / "01_大学" / "情報科学演習Ⅱ" / "第3回_資料.txt"
+    assert client.post("/api/files/open", json={"path": str(doc)}).get_json()["opened"] == "第3回_資料.txt"
+    assert client.post("/api/files/open", json={"path": r"Workspace\01_大学\情報科学演習Ⅱ\第3回_資料.txt"}).status_code == 200  # 登録したフォルダの名前から書いた場所
+    assert client.post("/api/files/open", json={"path": str(ws / "01_大学")}).status_code == 200  # フォルダはエクスプローラーで
+    assert opened == [str(doc), str(doc), str(ws / "01_大学")]
+    for bad in [desk / "スライドのメモ.txt", ws / "02_開発" / "app" / ".env", ws / "02_開発" / "app" / "run.bat",
+                ws / "02_開発" / "app" / ".git", r"Desktop\スライドのメモ.txt"]:
+        assert client.post("/api/files/open", json={"path": str(bad)}).status_code == 400
+    assert len(opened) == 3
+    assert client.post("/api/files/reveal", json={"path": str(doc)}).status_code == 200
+    assert ran == [["explorer", f"/select,{doc}"]]  # そのファイルを選んだ形で開く
+    assert client.post("/api/files/reveal", json={"path": str(desk / "スライドのメモ.txt")}).status_code == 400
+    import agent
+    assert "`` で囲んで書く" in agent.SYSTEM
