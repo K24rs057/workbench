@@ -27,3 +27,6 @@ __pycache__/
 
 # テストの集計
 .coverage
+
+# 解説動画の書き出し(声・MP4)
+docs/video/out/
