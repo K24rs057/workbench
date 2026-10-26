@@ -116,6 +116,16 @@ def run_jobs_once(db_path):
             worklog.tick(con, worklog.foreground())
     except Exception as e:  # 1回失敗しても止めない。本体の様子に残す
         _log_error(db_path, "作業記録", e)
+    try:  # 毎日の予備。日付が変わって最初の1回で作る(PC は眠るだけで起動し直さないため。Q17 1.12)
+        backup.run(db_path)
+    except Exception as e:
+        _log_error(db_path, "予備", e)
+    try:  # 時間割は10分ごと(timetable.refresh の中で間を数える。トップを開かなくても読む)
+        import timetable
+        with db.session(db_path) as con:
+            timetable.refresh(con)
+    except Exception as e:
+        _log_error(db_path, "時間割の読み込み", e)
     try:  # 初めて見た窓を Claude が仕分ける。5分ごと(winsort.run の中で間を数える。Q38)
         import winsort
         with db.session(db_path) as con:

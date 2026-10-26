@@ -50,6 +50,37 @@ def test_jobs_keep_going_when_worklog_fails(db_path, monkeypatch):
         assert "窓が読めない" in row["last_error"]
 
 
+def test_jobs_make_daily_backup_and_read_timetable(db_path, monkeypatch):
+    """本体が動きっぱなしでも、毎日の予備を作り(Q17 1.12)、時間割を10分ごとに読む(トップを開かなくても)。"""
+    from datetime import date, timedelta
+    import app
+    import backup
+    import timetable
+    import worklog
+
+    db.init(db_path)
+    monkeypatch.setattr(worklog, "foreground", lambda: None)
+    for mod, fn in (("outlook", "refresh"), ("gmail", "refresh"), ("gcal", "refresh"), ("gitlog", "refresh"),
+                    ("mails", "run_claude_jobs"), ("autodone", "run_jobs"), ("autodone", "run_maybe"), ("notify", "check")):
+        monkeypatch.setattr(__import__(mod), fn, lambda con: None)
+    folder = backup.backup_dir(db_path)
+    app.run_jobs_once(db_path)
+    app.run_jobs_once(db_path)
+    assert [p.name for p in folder.glob("dandori-*.db")] == [f"dandori-{date.today():%Y-%m-%d}.db"]  # 2回目は増えない
+    real_run = backup.run
+    monkeypatch.setattr(backup, "run", lambda path: real_run(path, today=date.today() + timedelta(days=1)))
+    app.run_jobs_once(db_path)
+    assert len(list(folder.glob("dandori-*.db"))) == 2  # 日付が変わったら次の日の分
+    with db.session(db_path) as con:
+        assert con.execute("SELECT last_run_at FROM job_status WHERE job = '時間割の読み込み'").fetchone()["last_run_at"]  # トップを開かなくても読んだ
+        con.execute("UPDATE settings SET value = ? WHERE key = 'timetable_read_at'",
+                    ((datetime.now() - timetable.READ_EVERY - timedelta(minutes=1)).isoformat(timespec="seconds"),))
+        con.execute("UPDATE job_status SET last_run_at = '2000-01-01T00:00:00' WHERE job = '時間割の読み込み'")
+    app.run_jobs_once(db_path)
+    with db.session(db_path) as con:
+        assert con.execute("SELECT last_run_at FROM job_status WHERE job = '時間割の読み込み'").fetchone()["last_run_at"] > "2000"  # 10分たったら読み直す
+
+
 # ---------- Outlook(outlook.read_inbox) ----------
 class _Exch:
     PrimarySmtpAddress = "teacher@example.ac.jp"
