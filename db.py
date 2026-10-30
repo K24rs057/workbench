@@ -177,7 +177,8 @@ CREATE TABLE IF NOT EXISTS deleted_items (
 CREATE TABLE IF NOT EXISTS baito_places (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    domain TEXT
+    domain TEXT,
+    subject_has TEXT
 );
 CREATE TABLE IF NOT EXISTS baito_addresses (
     id INTEGER PRIMARY KEY,
@@ -267,6 +268,7 @@ ADDED_COLUMNS = [
     ("window_rules", "ai_at", "TEXT"),
     ("window_rules", "ai_seen", "INTEGER NOT NULL DEFAULT 1"),    # 前からの決まりは、お知らせに出さない
     ("pending_windows", "ai_tried", "INTEGER NOT NULL DEFAULT 0"),
+    ("baito_places", "subject_has", "TEXT"),                      # 基本設計 1.13 Q20
 ]
 
 

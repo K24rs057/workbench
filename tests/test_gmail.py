@@ -74,6 +74,22 @@ def test_baito_relay_asks_once_then_remembers(db_path):
         assert con.execute("SELECT COUNT(*) FROM messages WHERE external_id = 'g4'").fetchone()[0] == 0
 
 
+def test_baito_subject_words_only(db_path):
+    """件名の言葉を持つバイト先は、件名にその言葉があるときだけ拾う。宣伝は同じアドレスから届いても拾わない(1.13)。"""
+    db.init(db_path)
+    with db.session(db_path) as con:
+        e = con.execute("INSERT INTO baito_places(name, domain, subject_has) VALUES ('派遣の会社', 'haken.example.jp', '作業内容/派遣の会社')").lastrowid
+        con.execute("INSERT INTO baito_addresses(baito_id, address) VALUES (?, 'kurume@haken.example.jp')", (e,))
+        k = con.execute("INSERT INTO baito_places(name, domain) VALUES ('カフェ', 'cafe.example.jp')").lastrowid
+        run(con, [mail("0001 山田 様 2026年11月06日(金) 作業内容/派遣の会社", sender="fukuoka@haken.example.jp", eid="w1"),
+                  mail("【注目】時給UP店舗も続出!", sender="fukuoka@haken.example.jp", eid="w2"),
+                  mail("明日の単発バイト急募です!", sender="kurume@haken.example.jp", eid="w3"),
+                  mail("2026年11月07日(土) 作業内容/派遣の会社", sender="kurume@haken.example.jp", eid="w4"),
+                  mail("来週のシフト", sender="tencho@cafe.example.jp", eid="w5")])
+        rows = {r["external_id"]: r["baito_id"] for r in con.execute("SELECT * FROM messages")}
+    assert rows == {"w1": e, "w4": e, "w5": k}  # 言葉のないバイト先は今までどおり全部
+
+
 def test_interview_decided_becomes_held_event(db_path):
     db.init(db_path)
     with db.session(db_path) as con:

@@ -237,12 +237,13 @@ def classify(con, msg):
         if not r["subject"] or r["subject"] in msg["subject"]:
             return {**msg, "category": "企業", "container_id": r["container_id"]}
     # アルバイト:覚えた中継アドレス → 登録したバイト先の @ から後ろ → 初めての中継アドレス(どのバイト先? と聞く)
+    # 件名の言葉があるバイト先は、件名にその言葉があるときだけ(宣伝も同じアドレスから届くため。1.13)
     r = con.execute("SELECT baito_id FROM baito_addresses WHERE address = ?", (sender,)).fetchone()
     if r:
-        return {**msg, "category": "アルバイト", "baito_id": r["baito_id"]}
+        return {**msg, "category": "アルバイト", "baito_id": r["baito_id"]} if _subject_ok(con, r["baito_id"], msg) else None
     r = con.execute("SELECT id FROM baito_places WHERE domain IS NOT NULL AND domain != '' AND ? IN (domain, ltrim(domain, '@'))", (dom,)).fetchone()
     if r:
-        return {**msg, "category": "アルバイト", "baito_id": r["id"]}
+        return {**msg, "category": "アルバイト", "baito_id": r["id"]} if _subject_ok(con, r["id"], msg) else None
     if any(dom == d or dom.endswith("." + d) for d in RELAY_DOMAINS):
         return {**msg, "category": "アルバイト", "baito_id": None}
     # 企業:登録したアドレスの @ から後ろ → 件名・本文の企業の名前(就活サイト経由のもの)
@@ -261,6 +262,11 @@ def classify(con, msg):
     if best:
         return {**msg, "category": "企業", "container_id": best[0]}
     return None
+
+
+def _subject_ok(con, baito_id, msg):
+    r = con.execute("SELECT subject_has FROM baito_places WHERE id = ?", (baito_id,)).fetchone()
+    return not (r and r["subject_has"]) or r["subject_has"] in msg["subject"]
 
 
 def _core_name(name):
